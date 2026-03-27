@@ -1,4 +1,4 @@
-export const mockContacts = [
+const seedContacts = [
   {
     id: "c1",
     name: "Dr. Priya Raman",
@@ -67,11 +67,86 @@ export const mockContacts = [
   },
 ];
 
+const generatedProfiles = Array.from({ length: 54 }, (_, i) => {
+  const index = i + 7;
+  const domainCycle = [
+    {
+      role: "Research Scientist",
+      category: "Research",
+      tags: ["AI", "Research", "Publications"],
+      org: "Stanford AI Lab",
+      focus: "student-led LLM evaluation projects",
+    },
+    {
+      role: "Software Engineer",
+      category: "Internship",
+      tags: ["Engineering", "Startups", "Backend"],
+      org: "Atlas Compute",
+      focus: "distributed systems internship pathways",
+    },
+    {
+      role: "Product Manager",
+      category: "Coffee Chat",
+      tags: ["Product", "Mentorship", "Growth"],
+      org: "Figma",
+      focus: "early-career PM rotational programs",
+    },
+    {
+      role: "Campus Recruiter",
+      category: "Referral",
+      tags: ["Recruiting", "Careers", "Outreach"],
+      org: "Microsoft",
+      focus: "new grad technical recruiting timelines",
+    },
+    {
+      role: "Analytics Lead",
+      category: "Mentorship",
+      tags: ["Data", "Mentorship", "Experimentation"],
+      org: "Airbnb",
+      focus: "mentoring students on analytics portfolios",
+    },
+    {
+      role: "Investment Analyst",
+      category: "Networking",
+      tags: ["Finance", "Networking", "Strategy"],
+      org: "Goldman Sachs",
+      focus: "networking opportunities for student analysts",
+    },
+  ][i % 6];
+
+  const firstNames = [
+    "Sam", "Riya", "Leo", "Mina", "Arjun", "Noah", "Sofia", "Ibrahim", "Claire", "Mateo", "Avery", "Dae",
+  ];
+  const lastNames = [
+    "Patel", "Nguyen", "Carter", "Kim", "Torres", "Singh", "Hernandez", "Wright", "Olsen", "Ali", "Brown", "Park",
+  ];
+
+  const first = firstNames[i % firstNames.length];
+  const last = lastNames[(i + 3) % lastNames.length];
+
+  return {
+    id: `c${index}`,
+    name: `${first} ${last}`,
+    role: domainCycle.role,
+    organization: domainCycle.org,
+    bio: `Supports students through ${domainCycle.focus} and actively replies to focused outreach.`,
+    relevance: `Strong overlap with your profile goals around ${domainCycle.tags[0].toLowerCase()} and practical career exploration.`,
+    category: domainCycle.category,
+    confidence: 72 + (i % 24),
+    tags: domainCycle.tags,
+  };
+});
+
+export const mockContacts = [...seedContacts, ...generatedProfiles];
+
 export const queryPresets = [
   "Professors in AI at UT Austin",
   "Alumni in consulting",
   "Software engineers at startups",
   "Recruiters at top tech companies",
+  "Product mentors for PM internships",
+  "Data science leaders in fintech",
+  "Research labs open to undergraduate assistants",
 ];
 
 export const toneOptions = [
