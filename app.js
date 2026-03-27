@@ -106,42 +106,32 @@ function nav() {
 
 function landingView() {
   return `
-  <section class="hero hero-fullbleed asym-grid">
-    <div class="hero-main panel panel-ink">
-      <p class="eyebrow">Swipe-powered student outreach</p>
-      <h1>Scout turns cold outreach into confident momentum.</h1>
-      <p class="lede">Find the right people, swipe to shortlist, and send personalized emails for research, mentorship, referrals, and career opportunities.</p>
-      <div class="actions">
-        <button class="btn primary" data-route="onboarding">Create your profile</button>
-        <button class="btn ghost" data-route="discovery">Try demo bank</button>
+  <section class="landing-reset">
+    <div class="landing-hero">
+      <div class="landing-copy">
+        <p class="eyebrow">Swipe-powered student outreach</p>
+        <h1>Find people worth reaching out to — then swipe them off the deck.</h1>
+        <p class="lede">Scout helps you build momentum from profile to contact discovery to personalized draft emails in one focused workflow.</p>
+        <div class="actions">
+          <button class="btn primary" data-route="onboarding">Create your profile</button>
+          <button class="btn ghost" data-route="swipe">Open swipe deck</button>
+        </div>
+      </div>
+      <div class="landing-strip">
+        <article class="panel">
+          <h3>1. Build your profile</h3>
+          <p>Share your goals and background once. Scout reuses it everywhere.</p>
+        </article>
+        <article class="panel">
+          <h3>2. Discover contacts</h3>
+          <p>Generate a target list by intent, interest area, and organization fit.</p>
+        </article>
+        <article class="panel">
+          <h3>3. Swipe and draft</h3>
+          <p>Swipe left/right, save contacts, and produce personalized outreach drafts quickly.</p>
+        </article>
       </div>
     </div>
-    <aside class="hero-side panel stacky">
-      <h3>How it works</h3>
-      <ol>
-        <li>Build your student profile once.</li>
-        <li>Generate a curated contact bank by intent.</li>
-        <li>Swipe, personalize, and send with confidence.</li>
-      </ol>
-      <p class="chipline">
-        <span class="chip">Research</span><span class="chip">Coffee chats</span><span class="chip">Referrals</span><span class="chip">Mentorship</span>
-      </p>
-    </aside>
-  </section>
-
-  <section class="value-rhythm">
-    <article class="panel tall">
-      <h2>Built for students who hate blank-page outreach.</h2>
-      <p>Scout compresses anxiety into decisions: right person, right goal, right message.</p>
-    </article>
-    <article class="panel">
-      <h3>Credible by design</h3>
-      <p>Every draft anchors to shared context and a clear reason for the ask.</p>
-    </article>
-    <article class="panel accent">
-      <h3>Opportunity-driven</h3>
-      <p>Track funnel progress from first swipe to response and follow-up.</p>
-    </article>
   </section>`;
 }
 
@@ -263,7 +253,7 @@ function animateSwipe(direction, onComplete) {
     state.swipeAnimating = false;
     state.swipeDirection = null;
     render();
-  }, 260);
+  }, 460);
 }
 
 function draftsView() {
@@ -367,7 +357,7 @@ function render() {
     dashboard: dashboardView,
   };
 
-  app.innerHTML = `<main class="shell">${nav()}<section class="page">${viewMap[state.route]()}</section></main>`;
+  app.innerHTML = `<main class="shell ${state.route === "landing" ? "shell-landing" : ""}">${nav()}<section class="page">${viewMap[state.route]()}</section></main>`;
   wireEvents();
 }
 
