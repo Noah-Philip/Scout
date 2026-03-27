@@ -30,6 +30,8 @@ const state = {
       note: "Available next Tuesday at 3:30 PM for a 20-min chat.",
     },
   ],
+  swipeDirection: null,
+  swipeAnimating: false,
 };
 
 const routes = ["landing", "onboarding", "discovery", "swipe", "drafts", "dashboard"];
@@ -104,7 +106,7 @@ function nav() {
 
 function landingView() {
   return `
-  <section class="hero asym-grid">
+  <section class="hero hero-fullbleed asym-grid">
     <div class="hero-main panel panel-ink">
       <p class="eyebrow">Swipe-powered student outreach</p>
       <h1>Scout turns cold outreach into confident momentum.</h1>
@@ -220,29 +222,48 @@ function swipeView() {
   }
 
   return `
-  <section class="swipe-layout">
-    <aside class="panel stripe">
-      <h2>Swipe deck</h2>
-      <p>${state.swipeIndex + 1} / ${state.contacts.length} reviewed</p>
-      <p>Set outreach goal before swiping right to auto-generate a draft.</p>
-      <label>Outreach goal
-        <select id="swipe-goal">${goalOptions.map((g) => `<option>${g}</option>`).join("")}</select>
-      </label>
-      <div class="actions col">
-        <button class="btn" data-skip="${c.id}">Swipe left · Skip</button>
-        <button class="btn primary" data-interest="${c.id}">Swipe right · Interested</button>
-        <button class="btn ghost" data-save="${c.id}">Save for later</button>
+  <section class="swipe-stage">
+    <article class="panel swipe-card-full ${state.swipeAnimating ? `swipe-${state.swipeDirection}` : ""}">
+      <div class="swipe-head">
+        <div>
+          <p class="eyebrow swipe-eyebrow">Swipe deck</p>
+          <h3>${c.name}</h3>
+          <p class="compact">${c.role} · ${c.organization}</p>
+        </div>
+        <div class="meta-top">
+          <span class="score">${c.confidence}% relevance</span>
+          <span class="cat">${c.category}</span>
+        </div>
       </div>
-    </aside>
-    <article class="panel swipe-card">
-      <div class="meta-top"><span class="score">${c.confidence}% relevance</span><span class="cat">${c.category}</span></div>
-      <h3>${c.name}</h3>
-      <p class="compact">${c.role} · ${c.organization}</p>
+      <p class="compact">${state.swipeIndex + 1} / ${state.contacts.length} reviewed</p>
       <p>${c.bio}</p>
       <p class="why">${c.relevance}</p>
       <p class="chipline">${c.tags.map((t) => `<span class="chip">${t}</span>`).join("")}</p>
+      <div class="swipe-controls">
+        <label>Outreach goal
+          <select id="swipe-goal">${goalOptions.map((g) => `<option>${g}</option>`).join("")}</select>
+        </label>
+        <div class="actions split">
+          <button class="btn" data-skip="${c.id}" ${state.swipeAnimating ? "disabled" : ""}>Swipe left · Skip</button>
+          <button class="btn ghost" data-save="${c.id}" ${state.swipeAnimating ? "disabled" : ""}>Save for later</button>
+          <button class="btn primary" data-interest="${c.id}" ${state.swipeAnimating ? "disabled" : ""}>Swipe right · Interested</button>
+        </div>
+      </div>
     </article>
   </section>`;
+}
+
+function animateSwipe(direction, onComplete) {
+  if (state.swipeAnimating) return;
+  state.swipeDirection = direction;
+  state.swipeAnimating = true;
+  render();
+  window.setTimeout(() => {
+    onComplete();
+    state.swipeAnimating = false;
+    state.swipeDirection = null;
+    render();
+  }, 260);
 }
 
 function draftsView() {
@@ -414,8 +435,9 @@ function wireEvents() {
 
   if (state.route === "swipe") {
     document.querySelector("[data-skip]")?.addEventListener("click", () => {
-      state.swipeIndex += 1;
-      render();
+      animateSwipe("left", () => {
+        state.swipeIndex += 1;
+      });
     });
 
     document.querySelector("[data-save]")?.addEventListener("click", (e) => {
@@ -428,9 +450,10 @@ function wireEvents() {
       const id = e.currentTarget.dataset.interest;
       const c = state.contacts.find((x) => x.id === id);
       const goal = document.getElementById("swipe-goal").value;
-      if (c) upsertDraft(generateDraft(c, goal, "coffee"));
-      state.swipeIndex += 1;
-      render();
+      animateSwipe("right", () => {
+        if (c) upsertDraft(generateDraft(c, goal, "coffee"));
+        state.swipeIndex += 1;
+      });
     });
   }
 

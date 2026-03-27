@@ -113,6 +113,12 @@ nav { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: center; }
   justify-content: end;
   border-radius: 32px 20px 28px 14px;
 }
+.hero-fullbleed {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  padding: 0 1.2rem;
+}
 .hero-main h1 { font-size: clamp(2rem, 4vw, 3.8rem); line-height: 1.03; margin: .3rem 0 .8rem; max-width: 12ch; }
 .eyebrow { text-transform: uppercase; letter-spacing: .16em; font-size: .72rem; font-weight: 700; color: #c4b5fd; }
 .stacky { transform: translateY(30px) rotate(-1.1deg); border-radius: 26px 16px 22px 14px; }
@@ -183,10 +189,40 @@ textarea { min-height: 94px; resize: vertical; }
 .score { background: #ede9fe; color: #5b21b6; padding: .2rem .45rem; border-radius: 999px; font-weight: 700; }
 .cat { text-transform: uppercase; letter-spacing: .08em; font-size: .7rem; }
 
-.swipe-layout { display: grid; grid-template-columns: .82fr 1.12fr; gap: 1rem; align-items: start; }
-.stripe { border-left: 4px solid var(--accent-3); border-radius: 12px 24px 18px 26px; }
-.swipe-card { min-height: 390px; transform: rotate(-1.3deg); transition: transform .25s ease; border-radius: 26px 14px 28px 16px; }
-.swipe-card:hover { transform: rotate(.2deg) translateY(-2px); }
+.swipe-stage {
+  min-height: calc(100vh - 155px);
+  display: grid;
+  align-items: stretch;
+}
+.swipe-card-full {
+  min-height: calc(100vh - 155px);
+  border-radius: 30px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transform: translateX(0) rotate(0deg) scale(1);
+  transition: transform .28s ease, opacity .28s ease;
+}
+.swipe-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+.swipe-eyebrow { color: #6d28d9; margin-bottom: .4rem; }
+.swipe-controls {
+  margin-top: 1rem;
+  padding-top: .9rem;
+  border-top: 1px solid rgba(124, 58, 237, .18);
+}
+.swipe-left {
+  transform: translateX(-120px) rotate(-8deg);
+  opacity: .05;
+}
+.swipe-right {
+  transform: translateX(120px) rotate(8deg);
+  opacity: .05;
+}
 .chipline { display: flex; flex-wrap: wrap; gap: .4rem; }
 .chip { background: #ecfeff; border: 1px solid #99f6e4; padding: .22rem .56rem; border-radius: 999px; font-size: .76rem; }
 
@@ -224,11 +260,20 @@ table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 th, td { text-align: left; padding: .52rem; border-bottom: 1px solid rgba(124, 58, 237, .18); }
 
 @media (max-width: 980px) {
-  .hero, .value-rhythm, .onboard, .discovery, .swipe-layout, .drafts, .dashboard-grid {
+  .hero, .value-rhythm, .onboard, .discovery, .drafts, .dashboard-grid {
     grid-template-columns: 1fr;
     grid-template-areas: unset;
   }
-  .stacky, .floated, .stagger.down, .stagger, .contact-card:nth-child(2n), .contact-card:nth-child(3n), .value-rhythm .panel:nth-child(2), .value-rhythm .panel:nth-child(3), .swipe-card {
+  .stacky, .floated, .stagger.down, .stagger, .contact-card:nth-child(2n), .contact-card:nth-child(3n), .value-rhythm .panel:nth-child(2), .value-rhythm .panel:nth-child(3), .swipe-card-full {
     transform: none;
+  }
+  .hero-fullbleed {
+    padding: 0;
+  }
+  .swipe-card-full, .swipe-stage {
+    min-height: calc(100vh - 120px);
+  }
+  .swipe-head {
+    flex-direction: column;
   }
 }
