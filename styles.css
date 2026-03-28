@@ -201,6 +201,11 @@ input, textarea, select {
   font: inherit;
   background: #fff;
 }
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  padding: 0;
+}
 textarea { min-height: 94px; resize: vertical; }
 
 .grid.two { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; }
