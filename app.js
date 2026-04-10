@@ -206,40 +206,59 @@ function discoveryView() {
 }
 
 function swipeView() {
-  const c = state.contacts[state.swipeIndex];
-  if (!c) {
+  const current = state.contacts[state.swipeIndex];
+  if (!current) {
     return `<section class="panel"><h2>Deck complete</h2><p>You reviewed all current contacts. Generate a new bank or jump to drafts.</p><div class="actions"><button class="btn" data-route="discovery">Generate more</button><button class="btn primary" data-route="drafts">View drafts</button></div></section>`;
   }
+  const next = state.contacts[state.swipeIndex + 1];
 
   return `
   <section class="swipe-stage">
-    <article class="panel swipe-card-full ${state.swipeAnimating ? `swipe-${state.swipeDirection}` : ""}">
+    <div class="swipe-stack">
+      ${
+        next
+          ? `<article class="panel swipe-card-preview">
+        <p class="eyebrow swipe-eyebrow">Up next</p>
+        <h3>${next.name}</h3>
+        <p class="compact">${next.role} · ${next.organization}</p>
+        <p class="preview-bio">${next.bio}</p>
+      </article>`
+          : `<article class="panel swipe-card-preview swipe-card-preview-empty">
+        <p class="compact">No more cards after this one.</p>
+      </article>`
+      }
+      <article class="panel swipe-card-full ${state.swipeAnimating ? `swipe-${state.swipeDirection}` : ""}" data-swipe-card>
+      <div class="swipe-feedback">
+        <span class="swipe-badge swipe-badge-left">Skip</span>
+        <span class="swipe-badge swipe-badge-right">Interested</span>
+      </div>
       <div class="swipe-head">
         <div>
           <p class="eyebrow swipe-eyebrow">Swipe deck</p>
-          <h3>${c.name}</h3>
-          <p class="compact">${c.role} · ${c.organization}</p>
+          <h3>${current.name}</h3>
+          <p class="compact">${current.role} · ${current.organization}</p>
         </div>
         <div class="meta-top">
-          <span class="score">${c.confidence}% relevance</span>
-          <span class="cat">${c.category}</span>
+          <span class="score">${current.confidence}% relevance</span>
+          <span class="cat">${current.category}</span>
         </div>
       </div>
       <p class="compact">${state.swipeIndex + 1} / ${state.contacts.length} reviewed</p>
-      <p>${c.bio}</p>
-      <p class="why">${c.relevance}</p>
-      <p class="chipline">${c.tags.map((t) => `<span class="chip">${t}</span>`).join("")}</p>
+      <p>${current.bio}</p>
+      <p class="why">${current.relevance}</p>
+      <p class="chipline">${current.tags.map((t) => `<span class="chip">${t}</span>`).join("")}</p>
       <div class="swipe-controls">
         <label>Outreach goal
           <select id="swipe-goal">${goalOptions.map((g) => `<option>${g}</option>`).join("")}</select>
         </label>
         <div class="actions split">
-          <button class="btn" data-skip="${c.id}" ${state.swipeAnimating ? "disabled" : ""}>Swipe left · Skip</button>
-          <button class="btn ghost" data-save="${c.id}" ${state.swipeAnimating ? "disabled" : ""}>Save for later</button>
-          <button class="btn primary" data-interest="${c.id}" ${state.swipeAnimating ? "disabled" : ""}>Swipe right · Interested</button>
+          <button class="btn" data-skip="${current.id}" ${state.swipeAnimating ? "disabled" : ""}>Swipe left · Skip</button>
+          <button class="btn ghost" data-save="${current.id}" ${state.swipeAnimating ? "disabled" : ""}>Save for later</button>
+          <button class="btn primary" data-interest="${current.id}" ${state.swipeAnimating ? "disabled" : ""}>Swipe right · Interested</button>
         </div>
       </div>
     </article>
+    </div>
   </section>`;
 }
 
@@ -424,6 +443,8 @@ function wireEvents() {
   }
 
   if (state.route === "swipe") {
+    wireSwipeDrag();
+
     document.querySelector("[data-skip]")?.addEventListener("click", () => {
       animateSwipe("left", () => {
         state.swipeIndex += 1;
@@ -503,6 +524,95 @@ function wireEvents() {
       });
     });
   }
+}
+
+function wireSwipeDrag() {
+  const swipeCard = document.querySelector("[data-swipe-card]");
+  if (!swipeCard || state.swipeAnimating) return;
+
+  const stage = document.querySelector(".swipe-stage");
+  const leftBadge = swipeCard.querySelector(".swipe-badge-left");
+  const rightBadge = swipeCard.querySelector(".swipe-badge-right");
+  const threshold = 110;
+  const releaseDistance = 130;
+  let pointerId = null;
+  let startX = 0;
+  let currentX = 0;
+  let dragging = false;
+
+  const setDragStyle = (offsetX) => {
+    const rotation = Math.max(-14, Math.min(14, offsetX * 0.06));
+    swipeCard.style.transition = "none";
+    swipeCard.style.transform = `translateX(${offsetX}px) rotate(${rotation}deg)`;
+    if (stage) {
+      const reveal = Math.min(1, Math.abs(offsetX) / threshold);
+      stage.style.setProperty("--reveal", reveal.toFixed(3));
+    }
+    if (leftBadge && rightBadge) {
+      leftBadge.style.opacity = offsetX < 0 ? Math.min(1, Math.abs(offsetX) / threshold) : 0;
+      rightBadge.style.opacity = offsetX > 0 ? Math.min(1, Math.abs(offsetX) / threshold) : 0;
+    }
+  };
+
+  const resetCard = () => {
+    swipeCard.style.transition = "transform .22s ease";
+    swipeCard.style.transform = "";
+    if (stage) stage.style.setProperty("--reveal", "0");
+    if (leftBadge && rightBadge) {
+      leftBadge.style.opacity = 0;
+      rightBadge.style.opacity = 0;
+    }
+  };
+
+  const completeDragSwipe = (direction) => {
+    if (state.swipeAnimating) return;
+    state.swipeAnimating = true;
+    swipeCard.style.transition = "transform .28s cubic-bezier(.19,.95,.31,1)";
+    swipeCard.style.transform = `translateX(${direction === "right" ? 135 : -135}vw) rotate(${direction === "right" ? 20 : -20}deg)`;
+    swipeCard.style.opacity = "0";
+    window.setTimeout(() => {
+      if (direction === "right") {
+        const c = state.contacts[state.swipeIndex];
+        const goal = document.getElementById("swipe-goal")?.value || goalOptions[0];
+        if (c) upsertDraft(generateDraft(c, goal, "coffee"));
+      }
+      state.swipeIndex += 1;
+      state.swipeAnimating = false;
+      state.swipeDirection = null;
+      render();
+    }, 280);
+  };
+
+  swipeCard.addEventListener("pointerdown", (e) => {
+    if (state.swipeAnimating) return;
+    if (e.target.closest("button, input, select, textarea, a, label")) return;
+    pointerId = e.pointerId;
+    dragging = true;
+    startX = e.clientX;
+    currentX = 0;
+    swipeCard.setPointerCapture(pointerId);
+  });
+
+  swipeCard.addEventListener("pointermove", (e) => {
+    if (!dragging || e.pointerId !== pointerId) return;
+    currentX = e.clientX - startX;
+    setDragStyle(currentX);
+  });
+
+  const endDrag = (e) => {
+    if (!dragging || e.pointerId !== pointerId) return;
+    dragging = false;
+    swipeCard.releasePointerCapture(pointerId);
+    pointerId = null;
+    if (Math.abs(currentX) >= releaseDistance) {
+      completeDragSwipe(currentX > 0 ? "right" : "left");
+      return;
+    }
+    resetCard();
+  };
+
+  swipeCard.addEventListener("pointerup", endDrag);
+  swipeCard.addEventListener("pointercancel", endDrag);
 }
 
 render();
