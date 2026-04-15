@@ -32,12 +32,17 @@ const state = {
   ],
   swipeDirection: null,
   swipeAnimating: false,
+  scheduleSyncError: "",
 };
 
 const routes = ["landing", "onboarding", "discovery", "swipe", "drafts", "dashboard"];
 
 function setRoute(route) {
   state.route = routes.includes(route) ? route : "landing";
+  if (state.route === "dashboard") {
+    fetchScheduledJobs().then(render);
+    return;
+  }
   render();
 }
 
@@ -82,7 +87,62 @@ function generateDraft(contact, goal, tone = "network") {
     personalization: `Personalized using your profile (${profile.major || "major"}, ${profile.interests || "interests"}) and ${contact.name}'s ${contact.category.toLowerCase()} relevance score (${contact.confidence}%).`,
     status: "Drafted",
     nextAction: "Review and send",
+    sendAt: defaultScheduleTime(),
   };
+}
+
+function defaultScheduleTime() {
+  const date = new Date(Date.now() + 60 * 60 * 1000);
+  date.setSeconds(0, 0);
+  const remainder = date.getMinutes() % 5;
+  if (remainder !== 0) date.setMinutes(date.getMinutes() + (5 - remainder));
+  return date.toISOString().slice(0, 16);
+}
+
+function formatScheduleDate(value) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+async function fetchScheduledJobs() {
+  try {
+    const response = await fetch("/api/email/scheduled");
+    if (!response.ok) throw new Error("Failed to load scheduled jobs.");
+    const data = await response.json();
+    state.scheduled = data.jobs || [];
+    state.scheduleSyncError = "";
+  } catch (error) {
+    state.scheduleSyncError = error.message;
+  }
+}
+
+async function scheduleDraftEmail(draft) {
+  const parsedSendAt = new Date(draft.sendAt);
+  const response = await fetch("/api/email/schedule", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      draftId: draft.id,
+      to: `${draft.contactName.toLowerCase().replace(/\s+/g, ".")}@example.com`,
+      subject: draft.subject,
+      body: draft.body,
+      sendAt: Number.isNaN(parsedSendAt.getTime()) ? new Date().toISOString() : parsedSendAt.toISOString(),
+      contactName: draft.contactName,
+      organization: draft.organization,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Unable to schedule email.");
+  }
+  return data.job;
 }
 
 function nav() {
@@ -312,6 +372,9 @@ function renderDraftEditor(i) {
     </label>
     <label>Subject<input data-subject-id="${d.id}" value="${d.subject}" /></label>
     <label>Email body<textarea data-body-id="${d.id}">${d.body}</textarea></label>
+    <label>Send at
+      <input type="datetime-local" data-send-at-id="${d.id}" value="${d.sendAt || defaultScheduleTime()}" />
+    </label>
     <p class="why"><strong>Why personalized:</strong> ${d.personalization}</p>
     <div class="actions split">
       <button class="btn" data-schedule="${d.id}">Schedule</button>
@@ -345,7 +408,16 @@ function dashboardView() {
     </div>
     <div class="panel stagger down">
       <h3>Scheduled queue</h3>
-      <ul>${state.scheduled.map((s) => `<li>${s.contactName} · ${s.nextAction}</li>`).join("") || "<li>No scheduled emails.</li>"}</ul>
+      ${state.scheduleSyncError ? `<p class="empty">${state.scheduleSyncError}</p>` : ""}
+      <ul>${
+        state.scheduled
+          .map((s) => {
+            const execution = s.executedAt ? ` · executed ${formatScheduleDate(s.executedAt)}` : "";
+            const logLine = s.lastLog ? `<br/><span class="compact">${s.lastLog}</span>` : "";
+            return `<li><strong>${s.contactName}</strong> · ${formatScheduleDate(s.sendAt)} · ${s.status}${execution}${logLine}</li>`;
+          })
+          .join("") || "<li>No scheduled emails.</li>"
+      }</ul>
     </div>
     <div class="panel wide">
       <h3>Outreach activity</h3>
@@ -353,7 +425,12 @@ function dashboardView() {
         <thead><tr><th>Contact</th><th>Status</th><th>Next action</th></tr></thead>
         <tbody>
           ${[...state.drafts, ...state.scheduled, ...state.sent]
-            .map((d) => `<tr><td>${d.contactName}</td><td>${d.status}</td><td>${d.nextAction}</td></tr>`)
+            .map((d) => {
+              const nextAction = d.executedAt
+                ? `Executed ${formatScheduleDate(d.executedAt)}`
+                : d.nextAction || `Scheduled for ${formatScheduleDate(d.sendAt)}`;
+              return `<tr><td>${d.contactName}</td><td>${d.status}</td><td>${nextAction}</td></tr>`;
+            })
             .join("") || "<tr><td colspan='3'>No outreach logged yet.</td></tr>"}
         </tbody>
       </table>
@@ -497,16 +574,31 @@ function wireEvents() {
       });
     });
 
+    document.querySelectorAll("[data-send-at-id]").forEach((el) => {
+      el.addEventListener("input", (e) => {
+        const d = state.drafts.find((x) => x.id === e.currentTarget.dataset.sendAtId);
+        if (d) d.sendAt = e.currentTarget.value;
+      });
+    });
+
     document.querySelectorAll("[data-schedule]").forEach((el) => {
-      el.addEventListener("click", (e) => {
+      el.addEventListener("click", async (e) => {
         const id = e.currentTarget.dataset.schedule;
         const d = state.drafts.find((x) => x.id === id);
         if (!d) return;
-        d.status = "Scheduled";
-        d.nextAction = "Auto-send Monday 8:30 AM";
-        state.scheduled.push(d);
-        state.drafts = state.drafts.filter((x) => x.id !== id);
-        setRoute("dashboard");
+        e.currentTarget.disabled = true;
+        try {
+          const job = await scheduleDraftEmail(d);
+          d.status = "Scheduled";
+          d.nextAction = `Queued for ${formatScheduleDate(job.sendAt)}`;
+          state.scheduled.unshift(job);
+          state.scheduleSyncError = "";
+          state.drafts = state.drafts.filter((x) => x.id !== id);
+          setRoute("dashboard");
+        } catch (error) {
+          alert(error.message);
+          e.currentTarget.disabled = false;
+        }
       });
     });
 
@@ -615,4 +707,10 @@ function wireSwipeDrag() {
   swipeCard.addEventListener("pointercancel", endDrag);
 }
 
-render();
+window.setInterval(() => {
+  if (state.route === "dashboard") {
+    fetchScheduledJobs().then(render);
+  }
+}, 10000);
+
+fetchScheduledJobs().then(render);
