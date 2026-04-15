@@ -2,6 +2,7 @@ const seedContacts = [
   {
     id: "c1",
     name: "Dr. Priya Raman",
+    email: "priya.raman@utexas.edu",
     role: "Assistant Professor, Machine Learning",
     organization: "UT Austin",
     bio: "Leads a lab focused on multimodal learning for healthcare applications.",
@@ -13,6 +14,7 @@ const seedContacts = [
   {
     id: "c2",
     name: "Jordan Lee",
+    email: "jordan.lee@google.com",
     role: "Product Manager",
     organization: "Google",
     bio: "UT Austin alum helping early-career students break into product roles.",
@@ -24,6 +26,7 @@ const seedContacts = [
   {
     id: "c3",
     name: "Marisol Chen",
+    email: "marisol.chen@mckinsey.com",
     role: "Campus Recruiter",
     organization: "McKinsey & Company",
     bio: "Runs recruiting outreach for Southwest universities.",
@@ -35,6 +38,7 @@ const seedContacts = [
   {
     id: "c4",
     name: "Nikhil Desai",
+    email: "nikhil.desai@northstarlabs.com",
     role: "Software Engineer",
     organization: "Northstar Labs",
     bio: "Early engineer at a growth-stage startup building developer tooling.",
@@ -46,6 +50,7 @@ const seedContacts = [
   {
     id: "c5",
     name: "Prof. Elena Voss",
+    email: "elena.voss@columbia.edu",
     role: "Associate Professor, Economics",
     organization: "Columbia University",
     bio: "Publishes on labor markets and causal inference; mentors undergraduate thesis students.",
@@ -57,6 +62,7 @@ const seedContacts = [
   {
     id: "c6",
     name: "Aisha Bello",
+    email: "aisha.bello@stripe.com",
     role: "Senior Data Scientist",
     organization: "Stripe",
     bio: "Leads experimentation on fraud detection systems and mentors women in data.",
@@ -127,6 +133,7 @@ const generatedProfiles = Array.from({ length: 54 }, (_, i) => {
   return {
     id: `c${index}`,
     name: `${first} ${last}`,
+    email: `${first}.${last}${index}@${domainCycle.org.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`,
     role: domainCycle.role,
     organization: domainCycle.org,
     bio: `Supports students through ${domainCycle.focus} and actively replies to focused outreach.`,

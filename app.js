@@ -32,12 +32,109 @@ const state = {
   ],
   swipeDirection: null,
   swipeAnimating: false,
+  sendAttempts: [],
+  sendAttemptsLoaded: false,
+  apiAvailable: false,
+  mockMode: false,
 };
 
 const routes = ["landing", "onboarding", "discovery", "swipe", "drafts", "dashboard"];
 
-function setRoute(route) {
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isMockModeEnabled() {
+  const queryMock = new URLSearchParams(window.location.search).get("mock");
+  const storageMock = window.localStorage.getItem("SCOUT_MOCK_MODE");
+  return queryMock === "1" || storageMock === "1";
+}
+
+async function requestJSON(url, options = {}) {
+  const response = await fetch(url, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const message = payload?.error || `Request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return payload;
+}
+
+function localSendFallback(draft) {
+  return {
+    draftId: draft.id,
+    contactEmail: draft.contactEmail || "",
+    providerMessageId: `mock-${Date.now()}`,
+    status: "mock-sent",
+    error: null,
+    sentAt: new Date().toISOString(),
+  };
+}
+
+async function syncSendAttempts() {
+  if (state.mockMode || !navigator.onLine) return;
+  try {
+    const payload = await requestJSON("/api/send-attempts");
+    state.sendAttempts = payload.sendAttempts || [];
+    state.sendAttemptsLoaded = true;
+    state.apiAvailable = true;
+  } catch (_error) {
+    state.apiAvailable = false;
+  }
+}
+
+async function sendDraft(draft) {
+  if (state.mockMode || !navigator.onLine) {
+    const attempt = localSendFallback(draft);
+    state.sendAttempts = [attempt, ...state.sendAttempts];
+    return { attempt, usedFallback: true };
+  }
+
+  try {
+    const payload = await requestJSON("/api/send", {
+      method: "POST",
+      body: JSON.stringify({
+        draftId: draft.id,
+        contactEmail: draft.contactEmail,
+        subject: draft.subject,
+        body: draft.body,
+      }),
+    });
+    const attempt = payload.attempt;
+    state.sendAttempts = [attempt, ...state.sendAttempts.filter((a) => a.draftId !== attempt.draftId)];
+    state.apiAvailable = true;
+    return { attempt, usedFallback: false, fromEmail: payload.fromEmail, replyTo: payload.replyTo || null };
+  } catch (error) {
+    const failedAttempt = {
+      draftId: draft.id,
+      contactEmail: draft.contactEmail,
+      providerMessageId: null,
+      status: "failed",
+      error: error.message,
+      sentAt: null,
+    };
+    state.sendAttempts = [failedAttempt, ...state.sendAttempts.filter((a) => a.draftId !== draft.id)];
+    return { attempt: failedAttempt, usedFallback: false, error };
+  }
+}
+
+async function setRoute(route) {
   state.route = routes.includes(route) ? route : "landing";
+  if (state.route === "dashboard") {
+    await syncSendAttempts();
+  }
   render();
 }
 
@@ -74,6 +171,7 @@ function generateDraft(contact, goal, tone = "network") {
     id: `${contact.id}-${Date.now()}`,
     contactId: contact.id,
     contactName: contact.name,
+    contactEmail: contact.email || "",
     organization: contact.organization,
     goal,
     tone,
@@ -303,6 +401,7 @@ function renderDraftEditor(i) {
   }
   return `
     <h3>${d.contactName} · ${d.organization}</h3>
+    <p class="compact">To: ${d.contactEmail || "Missing contact email"}</p>
     <label>Tone / intent
       <select data-tone-id="${d.id}">
       ${toneOptions
@@ -326,6 +425,20 @@ function dashboardView() {
   const scheduledCount = state.scheduled.length;
   const responses = state.responses.length;
   const responseRate = sentCount ? Math.round((responses / sentCount) * 100) : 0;
+  const shouldUseApiStatus = state.sendAttemptsLoaded && state.apiAvailable && !state.mockMode;
+  const attemptsByDraftId = new Map(state.sendAttempts.map((attempt) => [attempt.draftId, attempt]));
+
+  const outreachRows = [...state.drafts, ...state.scheduled, ...state.sent].map((draft) => {
+    const attempt = attemptsByDraftId.get(draft.id);
+    const status = shouldUseApiStatus && attempt ? attempt.status : draft.status;
+    const nextAction = shouldUseApiStatus && attempt
+      ? attempt.status === "sent"
+        ? `Delivered via provider (${attempt.providerMessageId || "ID unavailable"})`
+        : `Retry send (${attempt.error || "Unknown provider error"})`
+      : draft.nextAction;
+
+    return `<tr><td>${draft.contactName}</td><td>${status}</td><td>${nextAction}</td></tr>`;
+  });
 
   return `
   <section class="dashboard-grid">
@@ -349,12 +462,11 @@ function dashboardView() {
     </div>
     <div class="panel wide">
       <h3>Outreach activity</h3>
+      <p class="compact">${shouldUseApiStatus ? "Showing provider-backed delivery status." : "Showing local status (API unavailable, offline, or mock mode)."}</p>
       <table>
         <thead><tr><th>Contact</th><th>Status</th><th>Next action</th></tr></thead>
         <tbody>
-          ${[...state.drafts, ...state.scheduled, ...state.sent]
-            .map((d) => `<tr><td>${d.contactName}</td><td>${d.status}</td><td>${d.nextAction}</td></tr>`)
-            .join("") || "<tr><td colspan='3'>No outreach logged yet.</td></tr>"}
+          ${outreachRows.join("") || "<tr><td colspan='3'>No outreach logged yet.</td></tr>"}
         </tbody>
       </table>
     </div>
@@ -511,16 +623,36 @@ function wireEvents() {
     });
 
     document.querySelectorAll("[data-send]").forEach((el) => {
-      el.addEventListener("click", (e) => {
+      el.addEventListener("click", async (e) => {
         const id = e.currentTarget.dataset.send;
         const d = state.drafts.find((x) => x.id === id);
         if (!d) return;
-        d.status = "Sent";
-        d.nextAction = "Set follow-up in 5 days";
+        if (!d.contactEmail || !EMAIL_PATTERN.test(d.contactEmail)) {
+          alert(`Cannot send ${d.contactName}: missing or invalid contact email.`);
+          return;
+        }
+
+        const result = await sendDraft(d);
+        const attempt = result.attempt;
+
+        d.providerMessageId = attempt.providerMessageId || null;
+        d.sentAt = attempt.sentAt || null;
+        d.error = attempt.error || null;
+        d.status = attempt.status === "sent" || attempt.status === "mock-sent" ? "Sent" : "Failed";
+        d.nextAction = attempt.status === "sent" || attempt.status === "mock-sent"
+          ? `Set follow-up in 5 days${attempt.providerMessageId ? ` · Provider ID: ${attempt.providerMessageId}` : ""}`
+          : `Retry send${attempt.error ? ` · ${attempt.error}` : ""}`;
         state.sent.push(d);
         state.drafts = state.drafts.filter((x) => x.id !== id);
-        alert(`Email sent to ${d.contactName}. Identity confirmed as ${state.profile.name || "Student User"}.`);
-        setRoute("dashboard");
+        if (result.error) {
+          alert(`Send failed for ${d.contactName}: ${result.error.message}`);
+        } else {
+          const via = result.usedFallback ? "local fallback mode" : "email provider";
+          alert(
+            `Send recorded for ${d.contactName} via ${via}.${attempt.providerMessageId ? ` Provider message ID: ${attempt.providerMessageId}.` : ""}`
+          );
+        }
+        await setRoute("dashboard");
       });
     });
   }
@@ -615,4 +747,10 @@ function wireSwipeDrag() {
   swipeCard.addEventListener("pointercancel", endDrag);
 }
 
-render();
+async function initializeApp() {
+  state.mockMode = isMockModeEnabled();
+  await syncSendAttempts();
+  render();
+}
+
+initializeApp();
