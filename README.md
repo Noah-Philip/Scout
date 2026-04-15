@@ -11,10 +11,26 @@ Scout is a swipe-based cold outreach MVP for students. It includes:
 
 ## Run
 
-Because this is a lightweight static app, run any static server from this folder:
+Install dependencies:
 
 ```bash
-python3 -m http.server 4173
+npm install
+```
+
+Set SMTP credentials in your environment (or `.env` loaded by your shell):
+
+```bash
+export SMTP_HOST="smtp.your-provider.com"
+export SMTP_PORT="587"
+export SMTP_USER="your-user"
+export SMTP_PASS="your-password"
+export EMAIL_FROM="Scout <no-reply@your-domain.com>"
+```
+
+Start the app + API server:
+
+```bash
+npm start
 ```
 
 Then open `http://localhost:4173`.
