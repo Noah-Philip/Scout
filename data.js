@@ -9,6 +9,7 @@ const seedContacts = [
     category: "Research",
     confidence: 94,
     tags: ["AI", "Healthcare", "Research"],
+    email: "priya.raman@utexas.edu",
   },
   {
     id: "c2",
@@ -20,6 +21,7 @@ const seedContacts = [
     category: "Coffee Chat",
     confidence: 89,
     tags: ["Alumni", "PM", "Mentorship"],
+    email: "jordan.lee@google.com",
   },
   {
     id: "c3",
@@ -31,6 +33,7 @@ const seedContacts = [
     category: "Referral",
     confidence: 82,
     tags: ["Consulting", "Recruiting"],
+    email: "marisol.chen@mckinsey.com",
   },
   {
     id: "c4",
@@ -42,6 +45,7 @@ const seedContacts = [
     category: "Internship",
     confidence: 86,
     tags: ["Startups", "Engineering", "Internships"],
+    email: "nikhil.desai@northstarlabs.com",
   },
   {
     id: "c5",
@@ -53,6 +57,7 @@ const seedContacts = [
     category: "Mentorship",
     confidence: 78,
     tags: ["Economics", "Mentorship", "Research"],
+    email: "elena.voss@columbia.edu",
   },
   {
     id: "c6",
@@ -64,6 +69,7 @@ const seedContacts = [
     category: "Networking",
     confidence: 83,
     tags: ["Data Science", "Fintech", "Networking"],
+    email: "aisha.bello@stripe.com",
   },
 ];
 
@@ -124,6 +130,8 @@ const generatedProfiles = Array.from({ length: 54 }, (_, i) => {
   const first = firstNames[i % firstNames.length];
   const last = lastNames[(i + 3) % lastNames.length];
 
+  const domain = domainCycle.org.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
   return {
     id: `c${index}`,
     name: `${first} ${last}`,
@@ -134,6 +142,7 @@ const generatedProfiles = Array.from({ length: 54 }, (_, i) => {
     category: domainCycle.category,
     confidence: 72 + (i % 24),
     tags: domainCycle.tags,
+    email: `${first}.${last}@${domain}.com`.toLowerCase(),
   };
 });
 

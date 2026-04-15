@@ -9,6 +9,7 @@ const state = {
     school: "",
     major: "",
     gradYear: "",
+    email: "",
     interests: "",
     background: "",
     goals: "",
@@ -149,6 +150,7 @@ function onboardingView() {
         <label>School<input name="school" value="${p.school}" /></label>
         <label>Major<input name="major" value="${p.major}" /></label>
         <label>Graduation year<input name="gradYear" value="${p.gradYear}" /></label>
+        <label>Email<input type="email" name="email" value="${p.email}" placeholder="you@school.edu" /></label>
       </div>
       <label>Interests<textarea name="interests" placeholder="AI, behavioral econ, healthcare systems...">${p.interests}</textarea></label>
       <label>Experience / background<textarea name="background" placeholder="Projects, clubs, internships, coursework...">${p.background}</textarea></label>
@@ -385,6 +387,17 @@ function render() {
   wireEvents();
 }
 
+
+function getContactById(contactId) {
+  return state.contacts.find((c) => c.id === contactId) || mockContacts.find((c) => c.id === contactId);
+}
+
+function buildRecipient(contact) {
+  if (!contact) return null;
+  if (contact.email) return `${contact.name} <${contact.email}>`;
+  return `${contact.name} <${contact.id}@example.com>`;
+}
+
 function upsertDraft(newDraft) {
   const exists = state.drafts.some((d) => d.contactId === newDraft.contactId && d.goal === newDraft.goal);
   if (!exists) state.drafts.unshift(newDraft);
@@ -399,6 +412,13 @@ async function sendDraft(draftId) {
   render();
 
   try {
+    const contact = getContactById(d.contactId);
+    const recipient = buildRecipient(contact);
+
+    if (!recipient) {
+      throw new Error("Unable to resolve a recipient email address for this contact.");
+    }
+
     const response = await fetch("/api/email/send", {
       method: "POST",
       headers: {
@@ -406,12 +426,13 @@ async function sendDraft(draftId) {
         "Idempotency-Key": d.id,
       },
       body: JSON.stringify({
-        to: `${d.contactName} <${d.contactId}@example.com>`,
+        to: recipient,
         subject: d.subject,
         body: d.body,
         contactId: d.contactId,
         goal: d.goal,
         draftId: d.id,
+        replyTo: state.profile.email || undefined,
       }),
     });
 
