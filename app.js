@@ -21,6 +21,8 @@ const state = {
   swipeIndex: 0,
   saved: [],
   drafts: [],
+  sendingDraftIds: [],
+  sendErrors: {},
   scheduled: [],
   sent: [],
   responses: [
@@ -301,6 +303,8 @@ function renderDraftEditor(i) {
   if (!d) {
     return `<h3>No draft selected</h3>`;
   }
+  const isSending = state.sendingDraftIds.includes(d.id);
+  const sendError = state.sendErrors[d.id];
   return `
     <h3>${d.contactName} · ${d.organization}</h3>
     <label>Tone / intent
@@ -315,8 +319,9 @@ function renderDraftEditor(i) {
     <p class="why"><strong>Why personalized:</strong> ${d.personalization}</p>
     <div class="actions split">
       <button class="btn" data-schedule="${d.id}">Schedule</button>
-      <button class="btn primary" data-send="${d.id}">Send now</button>
+      <button class="btn primary" data-send="${d.id}" ${isSending ? "disabled" : ""}>${isSending ? "Sending…" : "Send now"}</button>
     </div>
+    ${sendError ? `<p class="error-message">${sendError} <button class="btn tiny" data-send="${d.id}">Retry</button></p>` : ""}
   `;
 }
 
@@ -383,6 +388,51 @@ function render() {
 function upsertDraft(newDraft) {
   const exists = state.drafts.some((d) => d.contactId === newDraft.contactId && d.goal === newDraft.goal);
   if (!exists) state.drafts.unshift(newDraft);
+}
+
+async function sendDraft(draftId) {
+  const d = state.drafts.find((x) => x.id === draftId);
+  if (!d || state.sendingDraftIds.includes(draftId)) return;
+
+  state.sendErrors[draftId] = "";
+  state.sendingDraftIds = [...state.sendingDraftIds, draftId];
+  render();
+
+  try {
+    const response = await fetch("/api/email/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": d.id,
+      },
+      body: JSON.stringify({
+        to: `${d.contactName} <${d.contactId}@example.com>`,
+        subject: d.subject,
+        body: d.body,
+        contactId: d.contactId,
+        goal: d.goal,
+        draftId: d.id,
+      }),
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.error || result.details || "Unable to send message.");
+    }
+
+    d.status = "Sent";
+    d.nextAction = "Set follow-up in 5 days";
+    state.sent.push(d);
+    state.drafts = state.drafts.filter((x) => x.id !== draftId);
+    delete state.sendErrors[draftId];
+    setRoute("dashboard");
+  } catch (error) {
+    state.sendErrors[draftId] = error instanceof Error ? error.message : "Unable to send message.";
+    render();
+  } finally {
+    state.sendingDraftIds = state.sendingDraftIds.filter((id) => id !== draftId);
+    render();
+  }
 }
 
 function wireEvents() {
@@ -511,16 +561,9 @@ function wireEvents() {
     });
 
     document.querySelectorAll("[data-send]").forEach((el) => {
-      el.addEventListener("click", (e) => {
+      el.addEventListener("click", async (e) => {
         const id = e.currentTarget.dataset.send;
-        const d = state.drafts.find((x) => x.id === id);
-        if (!d) return;
-        d.status = "Sent";
-        d.nextAction = "Set follow-up in 5 days";
-        state.sent.push(d);
-        state.drafts = state.drafts.filter((x) => x.id !== id);
-        alert(`Email sent to ${d.contactName}. Identity confirmed as ${state.profile.name || "Student User"}.`);
-        setRoute("dashboard");
+        await sendDraft(id);
       });
     });
   }

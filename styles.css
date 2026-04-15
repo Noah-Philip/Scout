@@ -171,6 +171,7 @@ nav { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: center; }
 h2, h3 { margin: 0 0 .6rem; line-height: 1.15; }
 p { margin: 0 0 .8rem; color: #2a2140; }
 .compact { color: var(--muted); font-size: .92rem; }
+.error-message { color: #9f1239; font-size: .92rem; display: flex; align-items: center; gap: .5rem; }
 
 .actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .4rem; }
 .actions.split { justify-content: space-between; }
