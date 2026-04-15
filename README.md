@@ -24,8 +24,10 @@ export SMTP_HOST="smtp.your-provider.com"
 export SMTP_PORT="587"
 export SMTP_USER="your-user"
 export SMTP_PASS="your-password"
-export EMAIL_FROM="Scout <no-reply@your-domain.com>"
 ```
+
+Scout now sends each message using the onboarded user's email/name as the `From` address.
+Your SMTP provider must allow that sender identity for successful delivery.
 
 Start the app + API server:
 

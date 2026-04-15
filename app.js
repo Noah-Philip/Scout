@@ -398,6 +398,12 @@ function buildRecipient(contact) {
   return `${contact.name} <${contact.id}@example.com>`;
 }
 
+function buildSender(profile) {
+  if (!profile?.email) return null;
+  if (profile.name) return `${profile.name} <${profile.email}>`;
+  return profile.email;
+}
+
 function upsertDraft(newDraft) {
   const exists = state.drafts.some((d) => d.contactId === newDraft.contactId && d.goal === newDraft.goal);
   if (!exists) state.drafts.unshift(newDraft);
@@ -419,6 +425,11 @@ async function sendDraft(draftId) {
       throw new Error("Unable to resolve a recipient email address for this contact.");
     }
 
+    const sender = buildSender(state.profile);
+    if (!sender) {
+      throw new Error("Add your email in onboarding before sending messages.");
+    }
+
     const response = await fetch("/api/email/send", {
       method: "POST",
       headers: {
@@ -432,7 +443,7 @@ async function sendDraft(draftId) {
         contactId: d.contactId,
         goal: d.goal,
         draftId: d.id,
-        replyTo: state.profile.email || undefined,
+        from: sender,
       }),
     });
 

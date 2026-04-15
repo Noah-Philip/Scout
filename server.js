@@ -12,7 +12,7 @@ const port = process.env.PORT || 4173;
 app.use(express.json());
 app.use(express.static(__dirname));
 
-const requiredEnv = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "EMAIL_FROM"];
+const requiredEnv = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"];
 
 function getMissingConfig() {
   return requiredEnv.filter((name) => !process.env[name]);
@@ -38,11 +38,11 @@ function createTransporter() {
 const deliveryByIdempotencyKey = new Map();
 
 app.post("/api/email/send", async (req, res) => {
-  const { to, subject, body, contactId, goal, draftId, replyTo } = req.body || {};
+  const { to, subject, body, contactId, goal, draftId, from } = req.body || {};
   const idempotencyKey = req.get("Idempotency-Key") || draftId;
 
-  if (!to || !subject || !body || !contactId || !goal || !draftId) {
-    return res.status(400).json({ error: "to, subject, body, contactId, goal, and draftId are required." });
+  if (!to || !subject || !body || !contactId || !goal || !draftId || !from) {
+    return res.status(400).json({ error: "to, subject, body, contactId, goal, draftId, and from are required." });
   }
 
   if (!idempotencyKey) {
@@ -51,9 +51,14 @@ app.post("/api/email/send", async (req, res) => {
 
   const emailAddressRegex = /<([^>]+)>$/;
   const extractedTo = typeof to === "string" ? (to.match(emailAddressRegex)?.[1] || to).trim() : "";
+  const extractedFrom = typeof from === "string" ? (from.match(emailAddressRegex)?.[1] || from).trim() : "";
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(extractedTo)) {
     return res.status(400).json({ error: "Recipient email address is invalid." });
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(extractedFrom)) {
+    return res.status(400).json({ error: "Sender email address is invalid." });
   }
 
   const existingDelivery = deliveryByIdempotencyKey.get(idempotencyKey);
@@ -69,11 +74,10 @@ app.post("/api/email/send", async (req, res) => {
   try {
     const transporter = createTransporter();
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM,
+      from,
       to,
       subject,
       text: body,
-      replyTo: replyTo || undefined,
       headers: {
         "X-Contact-Id": String(contactId),
         "X-Outreach-Goal": String(goal),
