@@ -38,7 +38,7 @@ function createTransporter() {
 const deliveryByIdempotencyKey = new Map();
 
 app.post("/api/email/send", async (req, res) => {
-  const { to, subject, body, contactId, goal, draftId } = req.body || {};
+  const { to, subject, body, contactId, goal, draftId, replyTo } = req.body || {};
   const idempotencyKey = req.get("Idempotency-Key") || draftId;
 
   if (!to || !subject || !body || !contactId || !goal || !draftId) {
@@ -47,6 +47,13 @@ app.post("/api/email/send", async (req, res) => {
 
   if (!idempotencyKey) {
     return res.status(400).json({ error: "An idempotency key is required." });
+  }
+
+  const emailAddressRegex = /<([^>]+)>$/;
+  const extractedTo = typeof to === "string" ? (to.match(emailAddressRegex)?.[1] || to).trim() : "";
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(extractedTo)) {
+    return res.status(400).json({ error: "Recipient email address is invalid." });
   }
 
   const existingDelivery = deliveryByIdempotencyKey.get(idempotencyKey);
@@ -66,6 +73,7 @@ app.post("/api/email/send", async (req, res) => {
       to,
       subject,
       text: body,
+      replyTo: replyTo || undefined,
       headers: {
         "X-Contact-Id": String(contactId),
         "X-Outreach-Goal": String(goal),
