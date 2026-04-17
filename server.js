@@ -2,6 +2,7 @@ import express from "express";
 import nodemailer from "nodemailer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { mockContacts } from "./data.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,6 +37,43 @@ function createTransporter() {
 }
 
 const deliveryByIdempotencyKey = new Map();
+
+function tokenize(input = "") {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function includesAnyTerm(haystack, terms) {
+  if (!terms || terms.length === 0) return true;
+  return terms.some((term) => haystack.includes(term.toLowerCase()));
+}
+
+app.post("/api/discovery/search", (req, res) => {
+  const { query = "", filters = {}, fallbackToBroad = false } = req.body || {};
+  const roles = Array.isArray(filters.roles) ? filters.roles : [];
+  const organizations = Array.isArray(filters.organizations) ? filters.organizations : [];
+  const domains = Array.isArray(filters.domains) ? filters.domains : [];
+
+  const queryTokens = tokenize(query);
+  const contacts = [...mockContacts].filter((contact) => {
+    const searchable = `${contact.role} ${contact.organization} ${contact.tags.join(" ")} ${contact.bio} ${contact.relevance}`.toLowerCase();
+
+    if (fallbackToBroad || (roles.length === 0 && organizations.length === 0 && domains.length === 0)) {
+      if (queryTokens.length === 0) return true;
+      return queryTokens.some((token) => searchable.includes(token));
+    }
+
+    const roleMatch = includesAnyTerm(contact.role.toLowerCase(), roles);
+    const orgMatch = includesAnyTerm(contact.organization.toLowerCase(), organizations);
+    const domainMatch = includesAnyTerm(`${contact.tags.join(" ")} ${contact.bio}`.toLowerCase(), domains);
+    return roleMatch && orgMatch && domainMatch;
+  });
+
+  return res.status(200).json({ contacts });
+});
 
 app.post("/api/email/send", async (req, res) => {
   const { to, subject, body, contactId, goal, draftId, from } = req.body || {};
