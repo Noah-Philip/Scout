@@ -409,6 +409,70 @@ function upsertDraft(newDraft) {
   if (!exists) state.drafts.unshift(newDraft);
 }
 
+function parseDiscoveryQuery(query = "") {
+  const normalized = query.toLowerCase().trim();
+  const compact = normalized.replace(/[^a-z0-9\s&/]+/g, " ");
+
+  const rolePatterns = [
+    { key: "professor", value: "Professor", pattern: /\bprofessor(s)?\b|\bprof\b/ },
+    { key: "software engineer", value: "Software Engineer", pattern: /\bswe\b|\bsoftware engineer(s)?\b|\bengineer(s)?\b/ },
+    { key: "investment banking", value: "Investment Banking", pattern: /\binvestment banking\b|\bib\b|\binvestment banker(s)?\b/ },
+    { key: "researcher", value: "Researcher", pattern: /\bresearch(er|ers| scientist| scientists)?\b/ },
+    { key: "alumni", value: "Alumni", pattern: /\balumni\b|\balum\b|\balumni\b/ },
+  ];
+
+  const organizationPatterns = [
+    { key: "google", value: "Google", pattern: /\bgoogle\b/ },
+    { key: "jpmorgan", value: "JPMorgan", pattern: /\bjp\s?morgan\b|\bjpmorgan\b|\bjpm\b/ },
+    { key: "ibm", value: "IBM", pattern: /\bibm\b/ },
+    { key: "ut austin", value: "UT Austin", pattern: /\but austin\b|\butaustin\b|\butexas\b/ },
+    { key: "harvard", value: "Harvard", pattern: /\bharvard\b/ },
+  ];
+
+  const domainPatterns = [
+    { key: "ai", value: "AI", pattern: /\bai\b|\bartificial intelligence\b|\bmachine learning\b|\bml\b/ },
+    { key: "biotech", value: "Biotech", pattern: /\bbio\b|\bbiotech\b|\bbiotechnology\b|\blife sciences\b/ },
+    { key: "finance", value: "Finance", pattern: /\bfinance\b|\bfintech\b|\bbanking\b/ },
+    { key: "consulting", value: "Consulting", pattern: /\bconsulting\b|\bconsultant(s)?\b/ },
+  ];
+
+  const collectMatches = (patterns) => patterns.filter(({ pattern }) => pattern.test(compact)).map(({ value }) => value);
+
+  const roles = collectMatches(rolePatterns);
+  const organizations = collectMatches(organizationPatterns);
+  const domains = collectMatches(domainPatterns);
+  const matchedCount = roles.length + organizations.length + domains.length;
+  const matchedGroups = [roles, organizations, domains].filter((group) => group.length > 0).length;
+  const confidence = Math.min(1, matchedCount * 0.2 + matchedGroups * 0.15 + (compact.length > 3 ? 0.1 : 0));
+
+  return {
+    rawQuery: query.trim(),
+    filters: { roles, organizations, domains },
+    confidence,
+  };
+}
+
+async function runDiscoverySearch(intent) {
+  const payload = {
+    query: intent.rawQuery,
+    filters: intent.filters,
+    confidence: intent.confidence,
+    fallbackToBroad: intent.confidence < 0.35,
+  };
+
+  const response = await fetch("/api/discovery/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error || "Unable to generate contacts right now.");
+  }
+  return Array.isArray(result.contacts) ? result.contacts : [];
+}
+
 async function sendDraft(draftId) {
   const d = state.drafts.find((x) => x.id === draftId);
   if (!d || state.sendingDraftIds.includes(draftId)) return;
@@ -498,11 +562,15 @@ function wireEvents() {
       })
     );
 
-    document.getElementById("generate-bank")?.addEventListener("click", () => {
-      const query = document.getElementById("query-input").value.toLowerCase();
-      state.contacts = [...mockContacts]
-        .filter((c) => !query || `${c.role} ${c.organization} ${c.tags.join(" ")}`.toLowerCase().includes(query.split(" ")[0]))
-        .sort((a, b) => b.confidence - a.confidence);
+    document.getElementById("generate-bank")?.addEventListener("click", async () => {
+      const query = document.getElementById("query-input").value || "";
+      const intent = parseDiscoveryQuery(query);
+      try {
+        const contacts = await runDiscoverySearch(intent);
+        state.contacts = contacts.sort((a, b) => b.confidence - a.confidence);
+      } catch (_error) {
+        state.contacts = [...mockContacts].sort((a, b) => b.confidence - a.confidence);
+      }
       state.swipeIndex = 0;
       render();
     });
