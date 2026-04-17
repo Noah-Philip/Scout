@@ -26,6 +26,12 @@ const state = {
   sendErrors: {},
   scheduled: [],
   sent: [],
+  gmail: {
+    connected: false,
+    connectedEmail: "",
+    connecting: false,
+    error: "",
+  },
   responses: [
     {
       contact: "Jordan Lee",
@@ -140,6 +146,13 @@ function landingView() {
 
 function onboardingView() {
   const p = state.profile;
+  const sender = buildSender(state.profile);
+  const hasSender = Boolean(sender);
+  const gmailStatus = !hasSender
+    ? "Add your email above, then connect Gmail."
+    : state.gmail.connected
+      ? `Connected as ${state.gmail.connectedEmail}.`
+      : "Not connected. Required before sending as your own account.";
   return `
   <section class="asym-grid onboard">
     <div class="panel panel-ink">
@@ -150,7 +163,7 @@ function onboardingView() {
         <label>School<input name="school" value="${p.school}" /></label>
         <label>Major<input name="major" value="${p.major}" /></label>
         <label>Graduation year<input name="gradYear" value="${p.gradYear}" /></label>
-        <label>Email<input type="email" name="email" value="${p.email}" placeholder="you@school.edu" /></label>
+      <label>Email<input type="email" name="email" value="${p.email}" placeholder="you@school.edu" /></label>
       </div>
       <label>Interests<textarea name="interests" placeholder="AI, behavioral econ, healthcare systems...">${p.interests}</textarea></label>
       <label>Experience / background<textarea name="background" placeholder="Projects, clubs, internships, coursework...">${p.background}</textarea></label>
@@ -170,6 +183,17 @@ function onboardingView() {
       </div>
       <label>Preferred industries / fields<input name="industries" value="${p.industries}" placeholder="Consulting, AI research, biotech..."/></label>
       <label>Preferred companies / schools / departments<textarea name="preferredOrgs" placeholder="OpenAI, UT Austin CS, Bain...">${p.preferredOrgs}</textarea></label>
+      <div class="panel stacky">
+        <h4>Gmail sending identity</h4>
+        <p class="compact">${gmailStatus}</p>
+        ${state.gmail.error ? `<p class="error-message">${state.gmail.error}</p>` : ""}
+        <div class="actions split">
+          <button class="btn ${state.gmail.connected ? "" : "primary"}" id="connect-gmail" ${!hasSender || state.gmail.connecting ? "disabled" : ""}>
+            ${state.gmail.connecting ? "Connecting…" : state.gmail.connected ? "Reconnect Gmail" : "Connect Gmail"}
+          </button>
+          <button class="btn ghost" id="disconnect-gmail" ${!state.gmail.connected ? "disabled" : ""}>Disconnect</button>
+        </div>
+      </div>
       <div class="actions split">
         <button class="btn ghost" data-route="landing">Back</button>
         <button class="btn primary" id="save-profile">Save profile</button>
@@ -429,6 +453,9 @@ async function sendDraft(draftId) {
     if (!sender) {
       throw new Error("Add your email in onboarding before sending messages.");
     }
+    if (!state.gmail.connected || state.gmail.connectedEmail !== parseEmail(sender)) {
+      throw new Error("Connect this Gmail account in onboarding before sending.");
+    }
 
     const response = await fetch("/api/email/send", {
       method: "POST",
@@ -467,6 +494,135 @@ async function sendDraft(draftId) {
   }
 }
 
+function parseEmail(address) {
+  if (typeof address !== "string") return "";
+  const emailAddressRegex = /<([^>]+)>$/;
+  return (address.match(emailAddressRegex)?.[1] || address).trim().toLowerCase();
+}
+
+async function refreshGmailStatus() {
+  const sender = buildSender(state.profile);
+  const email = parseEmail(sender);
+  state.gmail.error = "";
+
+  if (!email) {
+    state.gmail.connected = false;
+    state.gmail.connectedEmail = "";
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/gmail/status?email=${encodeURIComponent(email)}`);
+    const result = await response.json().catch(() => ({}));
+    state.gmail.connected = Boolean(result.connected);
+    state.gmail.connectedEmail = result.connected ? email : "";
+  } catch (_error) {
+    state.gmail.connected = false;
+    state.gmail.connectedEmail = "";
+  }
+}
+
+async function startGmailOauth() {
+  const sender = buildSender(state.profile);
+  const email = parseEmail(sender);
+  if (!email) {
+    state.gmail.error = "Add your email in onboarding before connecting Gmail.";
+    render();
+    return;
+  }
+
+  state.gmail.error = "";
+  state.gmail.connecting = true;
+  render();
+
+  try {
+    const response = await fetch("/api/gmail/oauth/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.authUrl) {
+      throw new Error(result.error || result.details || "Unable to start Gmail OAuth.");
+    }
+
+    const popup = window.open(result.authUrl, "gmail-oauth", "width=560,height=720");
+    if (!popup) {
+      throw new Error("Popup was blocked. Allow popups and try again.");
+    }
+
+    await new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("Gmail OAuth timed out. Please try again."));
+      }, 120000);
+
+      const interval = window.setInterval(() => {
+        if (popup.closed) {
+          window.clearInterval(interval);
+          window.clearTimeout(timeout);
+          cleanup();
+          resolve();
+        }
+      }, 600);
+
+      function onMessage(event) {
+        if (event.origin !== window.location.origin) return;
+        if (event.data?.type === "gmail-oauth-success") {
+          cleanup();
+          resolve();
+        } else if (event.data?.type === "gmail-oauth-error") {
+          cleanup();
+          reject(new Error(event.data.error || "Gmail OAuth failed."));
+        }
+      }
+
+      function cleanup() {
+        window.removeEventListener("message", onMessage);
+        window.clearInterval(interval);
+        window.clearTimeout(timeout);
+      }
+
+      window.addEventListener("message", onMessage);
+    });
+
+    await refreshGmailStatus();
+    if (!state.gmail.connected) {
+      throw new Error("Gmail connected, but status check failed. Try again.");
+    }
+  } catch (error) {
+    state.gmail.error = error instanceof Error ? error.message : "Unable to connect Gmail.";
+  } finally {
+    state.gmail.connecting = false;
+    render();
+  }
+}
+
+async function disconnectGmail() {
+  const sender = buildSender(state.profile);
+  const email = parseEmail(sender);
+  if (!email) return;
+
+  try {
+    const response = await fetch("/api/gmail/disconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.error || result.details || "Unable to disconnect Gmail.");
+    }
+    state.gmail.connected = false;
+    state.gmail.connectedEmail = "";
+    state.gmail.error = "";
+  } catch (error) {
+    state.gmail.error = error instanceof Error ? error.message : "Unable to disconnect Gmail.";
+  } finally {
+    render();
+  }
+}
+
 function wireEvents() {
   document.querySelectorAll("[data-route]").forEach((el) => el.addEventListener("click", (e) => setRoute(e.currentTarget.dataset.route)));
 
@@ -475,6 +631,11 @@ function wireEvents() {
       el.addEventListener("input", (e) => {
         const key = e.currentTarget.name;
         state.profile[key] = e.currentTarget.value;
+        if (key === "email") {
+          state.gmail.connected = false;
+          state.gmail.connectedEmail = "";
+          state.gmail.error = "";
+        }
       });
     });
     document.querySelectorAll("input[type='checkbox'][name='opportunities']").forEach((el) => {
@@ -488,6 +649,14 @@ function wireEvents() {
 
     document.getElementById("save-profile")?.addEventListener("click", () => {
       setRoute("discovery");
+    });
+
+    document.getElementById("connect-gmail")?.addEventListener("click", async () => {
+      await startGmailOauth();
+    });
+
+    document.getElementById("disconnect-gmail")?.addEventListener("click", async () => {
+      await disconnectGmail();
     });
   }
 
@@ -691,3 +860,4 @@ function wireSwipeDrag() {
 }
 
 render();
+refreshGmailStatus();
