@@ -1,761 +1,271 @@
-import { goalOptions, mockContacts, queryPresets, toneOptions } from "./data.js";
-
-const app = document.getElementById("app");
+const app = document.getElementById('app');
 
 const state = {
-  route: "landing",
-  profile: {
-    name: "",
-    school: "",
-    major: "",
-    gradYear: "",
-    email: "",
-    interests: "",
-    background: "",
-    goals: "",
-    resume: "",
-    opportunities: [],
-    industries: "",
-    preferredOrgs: "",
-  },
-  contacts: [...mockContacts],
-  swipeIndex: 0,
-  saved: [],
+  query: '',
+  loading: false,
+  error: '',
+  contacts: [],
+  selected: null,
+  shortlisted: [],
   drafts: [],
-  sendingDraftIds: [],
-  sendErrors: {},
-  scheduled: [],
-  sent: [],
-  responses: [
-    {
-      contact: "Jordan Lee",
-      status: "Replied",
-      note: "Available next Tuesday at 3:30 PM for a 20-min chat.",
-    },
-  ],
-  swipeDirection: null,
-  swipeAnimating: false,
+  providerDebug: null,
+  emailLoading: false,
+  emailError: '',
+  emailForm: {
+    whoTheyAre: '',
+    background: '',
+    whyReachingOut: '',
+    ask: '',
+    tone: 'professional',
+    extraNotes: '',
+  },
+  generated: null,
 };
 
-const routes = ["landing", "onboarding", "discovery", "swipe", "drafts", "dashboard"];
+const presets = ['AI researchers', 'software engineers at Google', 'ML founders in Austin', 'UT alumni in product at Stripe'];
 
-function setRoute(route) {
-  state.route = routes.includes(route) ? route : "landing";
-  render();
-}
-
-function initials(name = "Scout User") {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((v) => v[0].toUpperCase())
-    .join("");
-}
-
-function generateDraft(contact, goal, tone = "network") {
-  const profile = state.profile;
-  const intro = profile.name
-    ? `I'm ${profile.name}, a ${profile.major || "student"} at ${profile.school || "my university"}.`
-    : "I'm a student exploring opportunities relevant to my goals.";
-
-  const subjectLookup = {
-    research: `Research interest in ${contact.organization} work`,
-    coffee: `Quick coffee chat request from a student`,
-    referral: `Seeking guidance on ${contact.organization} opportunities`,
-    network: `Student reaching out — ${contact.organization}`,
-  };
-
-  const intentLine = {
-    research: `I was impressed by your work on ${contact.tags[0]} and hoped to ask about potential research involvement.`,
-    coffee: "I would be grateful for a brief 15–20 minute coffee chat to learn from your path.",
-    referral: "If appropriate after learning more, I'd value your advice on positioning myself for relevant roles.",
-    network: "I'm reaching out to learn from your experience and explore where I can contribute.",
-  };
-
-  return {
-    id: `${contact.id}-${Date.now()}`,
-    contactId: contact.id,
-    contactName: contact.name,
-    organization: contact.organization,
-    goal,
-    tone,
-    subject: subjectLookup[tone],
-    body: `Hi ${contact.name.split(" ")[0]},\n\n${intro} ${intentLine[tone]}\n\nYour background as ${contact.role} stood out because ${contact.relevance.toLowerCase()}\n\nIf you have availability in the coming weeks, I'd deeply appreciate a short conversation. Happy to adapt to your schedule.\n\nThank you for your time,\n${profile.name || "[Your Name]"}`,
-    personalization: `Personalized using your profile (${profile.major || "major"}, ${profile.interests || "interests"}) and ${contact.name}'s ${contact.category.toLowerCase()} relevance score (${contact.confidence}%).`,
-    status: "Drafted",
-    nextAction: "Review and send",
-  };
-}
-
-function nav() {
-  return `
-  <header class="topbar">
-    <button class="brand" data-route="landing">
-      <span class="brand-mark">S</span>
-      <span>Scout</span>
-    </button>
-    <nav>
-      ${routes
-        .map(
-          (r) =>
-            `<button class="nav-link ${state.route === r ? "active" : ""}" data-route="${r}">${r[0].toUpperCase() + r.slice(1)}</button>`
-        )
-        .join("")}
-    </nav>
-    <div class="avatar">${initials(state.profile.name)}</div>
-  </header>`;
-}
-
-function landingView() {
-  return `
-  <section class="landing-reset">
-    <div class="landing-hero">
-      <div class="landing-copy">
-        <p class="eyebrow">Swipe-powered student outreach</p>
-        <h1>Find people worth reaching out to — then swipe them off the deck.</h1>
-        <p class="lede">Scout helps you build momentum from profile to contact discovery to personalized draft emails in one focused workflow.</p>
-        <div class="actions">
-          <button class="btn primary" data-route="onboarding">Create your profile</button>
-          <button class="btn ghost" data-route="swipe">Open swipe deck</button>
-        </div>
-      </div>
-      <div class="landing-strip">
-        <article class="panel">
-          <h3>1. Build your profile</h3>
-          <p>Share your goals and background once. Scout reuses it everywhere.</p>
-        </article>
-        <article class="panel">
-          <h3>2. Discover contacts</h3>
-          <p>Generate a target list by intent, interest area, and organization fit.</p>
-        </article>
-        <article class="panel">
-          <h3>3. Swipe and draft</h3>
-          <p>Swipe left/right, save contacts, and produce personalized outreach drafts quickly.</p>
-        </article>
-      </div>
-    </div>
-  </section>`;
-}
-
-function onboardingView() {
-  const p = state.profile;
-  return `
-  <section class="asym-grid onboard">
-    <div class="panel panel-ink">
-      <h2>Build your outreach profile</h2>
-      <p>This profile powers recommendations and personalized drafts across Scout.</p>
-      <div class="grid two">
-        <label>Name<input name="name" value="${p.name}" /></label>
-        <label>School<input name="school" value="${p.school}" /></label>
-        <label>Major<input name="major" value="${p.major}" /></label>
-        <label>Graduation year<input name="gradYear" value="${p.gradYear}" /></label>
-        <label>Email<input type="email" name="email" value="${p.email}" placeholder="you@school.edu" /></label>
-      </div>
-      <label>Interests<textarea name="interests" placeholder="AI, behavioral econ, healthcare systems...">${p.interests}</textarea></label>
-      <label>Experience / background<textarea name="background" placeholder="Projects, clubs, internships, coursework...">${p.background}</textarea></label>
-      <label>Career goals<textarea name="goals" placeholder="What are you aiming for this year?">${p.goals}</textarea></label>
-      <label>Resume (paste text)
-        <textarea name="resume" placeholder="Paste resume text or key bullets">${p.resume}</textarea>
-      </label>
-    </div>
-    <div class="panel floated">
-      <h3>Opportunity preferences</h3>
-      <div class="checklist">
-        ${goalOptions
-          .map(
-            (g) => `<label><input type="checkbox" name="opportunities" value="${g}" ${p.opportunities.includes(g) ? "checked" : ""}/> ${g}</label>`
-          )
-          .join("")}
-      </div>
-      <label>Preferred industries / fields<input name="industries" value="${p.industries}" placeholder="Consulting, AI research, biotech..."/></label>
-      <label>Preferred companies / schools / departments<textarea name="preferredOrgs" placeholder="OpenAI, UT Austin CS, Bain...">${p.preferredOrgs}</textarea></label>
-      <div class="actions split">
-        <button class="btn ghost" data-route="landing">Back</button>
-        <button class="btn primary" id="save-profile">Save profile</button>
-      </div>
-    </div>
-  </section>`;
-}
-
-function discoveryView() {
-  return `
-  <section class="asym-grid discovery">
-    <div class="panel stacky">
-      <h2>Contact discovery</h2>
-      <p>Browse your contact bank or generate one from specific criteria.</p>
-      <label>Generate contact bank
-        <input id="query-input" placeholder="e.g., professors in AI at UT Austin" />
-      </label>
-      <div class="preset-wrap">
-      ${queryPresets.map((q) => `<button class="mini" data-query="${q}">${q}</button>`).join("")}
-      </div>
-      <button class="btn primary" id="generate-bank">Generate contacts</button>
-    </div>
-    <div class="contact-grid">
-      ${state.contacts
-        .map(
-          (c) => `<article class="contact-card panel">
-            <div class="meta-top"><span class="score">${c.confidence}% fit</span><span class="cat">${c.category}</span></div>
-            <h3>${c.name}</h3>
-            <p class="compact">${c.role} · ${c.organization}</p>
-            <p>${c.bio}</p>
-            <p class="why"><strong>Why relevant:</strong> ${c.relevance}</p>
-            <div class="actions split"><button class="btn tiny" data-save="${c.id}">Save</button><button class="btn tiny primary" data-draft="${c.id}">Draft outreach</button></div>
-          </article>`
-        )
-        .join("")}
-    </div>
-  </section>`;
-}
-
-function swipeView() {
-  const current = state.contacts[state.swipeIndex];
-  if (!current) {
-    return `<section class="panel"><h2>Deck complete</h2><p>You reviewed all current contacts. Generate a new bank or jump to drafts.</p><div class="actions"><button class="btn" data-route="discovery">Generate more</button><button class="btn primary" data-route="drafts">View drafts</button></div></section>`;
-  }
-  const next = state.contacts[state.swipeIndex + 1];
-
-  return `
-  <section class="swipe-stage">
-    <div class="swipe-stack">
-      ${
-        next
-          ? `<article class="panel swipe-card-preview">
-        <p class="eyebrow swipe-eyebrow">Up next</p>
-        <h3>${next.name}</h3>
-        <p class="compact">${next.role} · ${next.organization}</p>
-        <p class="preview-bio">${next.bio}</p>
-      </article>`
-          : `<article class="panel swipe-card-preview swipe-card-preview-empty">
-        <p class="compact">No more cards after this one.</p>
-      </article>`
-      }
-      <article class="panel swipe-card-full ${state.swipeAnimating ? `swipe-${state.swipeDirection}` : ""}" data-swipe-card>
-      <div class="swipe-feedback">
-        <span class="swipe-badge swipe-badge-left">Skip</span>
-        <span class="swipe-badge swipe-badge-right">Interested</span>
-      </div>
-      <div class="swipe-head">
-        <div>
-          <p class="eyebrow swipe-eyebrow">Swipe deck</p>
-          <h3>${current.name}</h3>
-          <p class="compact">${current.role} · ${current.organization}</p>
-        </div>
-        <div class="meta-top">
-          <span class="score">${current.confidence}% relevance</span>
-          <span class="cat">${current.category}</span>
-        </div>
-      </div>
-      <p class="compact">${state.swipeIndex + 1} / ${state.contacts.length} reviewed</p>
-      <p>${current.bio}</p>
-      <p class="why">${current.relevance}</p>
-      <p class="chipline">${current.tags.map((t) => `<span class="chip">${t}</span>`).join("")}</p>
-      <div class="swipe-controls">
-        <label>Outreach goal
-          <select id="swipe-goal">${goalOptions.map((g) => `<option>${g}</option>`).join("")}</select>
-        </label>
-        <div class="actions split">
-          <button class="btn" data-skip="${current.id}" ${state.swipeAnimating ? "disabled" : ""}>Swipe left · Skip</button>
-          <button class="btn ghost" data-save="${current.id}" ${state.swipeAnimating ? "disabled" : ""}>Save for later</button>
-          <button class="btn primary" data-interest="${current.id}" ${state.swipeAnimating ? "disabled" : ""}>Swipe right · Interested</button>
-        </div>
-      </div>
-    </article>
-    </div>
-  </section>`;
-}
-
-function animateSwipe(direction, onComplete) {
-  if (state.swipeAnimating) return;
-  state.swipeDirection = direction;
-  state.swipeAnimating = true;
-  render();
-  window.setTimeout(() => {
-    onComplete();
-    state.swipeAnimating = false;
-    state.swipeDirection = null;
-    render();
-  }, 460);
-}
-
-function draftsView() {
-  return `
-  <section class="asym-grid drafts">
-    <div class="panel stacky">
-      <h2>Email drafts</h2>
-      <p>Review, edit, and choose tone before sending.</p>
-      ${state.drafts.length === 0 ? "<p class='empty'>No drafts yet. Swipe right on contacts or draft from discovery.</p>" : ""}
-      <div class="list">
-        ${state.drafts
-          .map(
-            (d, i) => `<button class="list-item ${i === 0 ? "active" : ""}" data-draft-index="${i}">${d.contactName} · ${d.goal}</button>`
-          )
-          .join("")}
-      </div>
-    </div>
-    <div class="panel floated">
-      ${renderDraftEditor(0)}
-    </div>
-  </section>`;
-}
-
-function renderDraftEditor(i) {
-  const d = state.drafts[i];
-  if (!d) {
-    return `<h3>No draft selected</h3>`;
-  }
-  const isSending = state.sendingDraftIds.includes(d.id);
-  const sendError = state.sendErrors[d.id];
-  return `
-    <h3>${d.contactName} · ${d.organization}</h3>
-    <label>Tone / intent
-      <select data-tone-id="${d.id}">
-      ${toneOptions
-        .map((t) => `<option value="${t.value}" ${d.tone === t.value ? "selected" : ""}>${t.label}</option>`)
-        .join("")}
-      </select>
-    </label>
-    <label>Subject<input data-subject-id="${d.id}" value="${d.subject}" /></label>
-    <label>Email body<textarea data-body-id="${d.id}">${d.body}</textarea></label>
-    <p class="why"><strong>Why personalized:</strong> ${d.personalization}</p>
-    <div class="actions split">
-      <button class="btn" data-schedule="${d.id}">Schedule</button>
-      <button class="btn primary" data-send="${d.id}" ${isSending ? "disabled" : ""}>${isSending ? "Sending…" : "Send now"}</button>
-    </div>
-    ${sendError ? `<p class="error-message">${sendError} <button class="btn tiny" data-send="${d.id}">Retry</button></p>` : ""}
-  `;
-}
-
-function dashboardView() {
-  const sentCount = state.sent.length;
-  const draftedCount = state.drafts.length;
-  const scheduledCount = state.scheduled.length;
-  const responses = state.responses.length;
-  const responseRate = sentCount ? Math.round((responses / sentCount) * 100) : 0;
-
-  return `
-  <section class="dashboard-grid">
-    <div class="panel panel-ink big-stat">
-      <h2>Outreach command center</h2>
-      <p>Keep momentum from first swipe to follow-up.</p>
-      <div class="kpis">
-        <div><span>${draftedCount}</span><small>Drafted</small></div>
-        <div><span>${scheduledCount}</span><small>Scheduled</small></div>
-        <div><span>${sentCount}</span><small>Sent</small></div>
-        <div><span>${responseRate}%</span><small>Response rate</small></div>
-      </div>
-    </div>
-    <div class="panel stagger">
-      <h3>Saved contacts</h3>
-      <ul>${state.saved.map((s) => `<li>${s.name} · ${s.organization}</li>`).join("") || "<li>No saved contacts yet.</li>"}</ul>
-    </div>
-    <div class="panel stagger down">
-      <h3>Scheduled queue</h3>
-      <ul>${state.scheduled.map((s) => `<li>${s.contactName} · ${s.nextAction}</li>`).join("") || "<li>No scheduled emails.</li>"}</ul>
-    </div>
-    <div class="panel wide">
-      <h3>Outreach activity</h3>
-      <table>
-        <thead><tr><th>Contact</th><th>Status</th><th>Next action</th></tr></thead>
-        <tbody>
-          ${[...state.drafts, ...state.scheduled, ...state.sent]
-            .map((d) => `<tr><td>${d.contactName}</td><td>${d.status}</td><td>${d.nextAction}</td></tr>`)
-            .join("") || "<tr><td colspan='3'>No outreach logged yet.</td></tr>"}
-        </tbody>
-      </table>
-    </div>
-    <div class="panel">
-      <h3>Responses + follow-up reminders</h3>
-      <ul>${state.responses.map((r) => `<li><strong>${r.contact}</strong> — ${r.note}</li>`).join("")}</ul>
-      <p class="compact">Suggested follow-up: send a 5-day reminder for non-responders.</p>
-    </div>
-  </section>`;
+function esc(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }
 
 function render() {
-  const viewMap = {
-    landing: landingView,
-    onboarding: onboardingView,
-    discovery: discoveryView,
-    swipe: swipeView,
-    drafts: draftsView,
-    dashboard: dashboardView,
-  };
+  app.innerHTML = `
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <h1>Scout</h1>
+        <p class="subtitle">Networking copilot: search → review → select → generate outreach.</p>
+      </div>
+      <button class="btn" id="provider-check">Provider status</button>
+    </header>
 
-  app.innerHTML = `<main class="shell ${state.route === "landing" ? "shell-landing" : ""}">${nav()}<section class="page">${viewMap[state.route]()}</section></main>`;
-  wireEvents();
+    <section class="panel search-panel">
+      <label>Search professional contacts</label>
+      <div class="search-row">
+        <input id="query" placeholder="e.g. software engineers at Google" value="${esc(state.query)}" />
+        <button class="btn primary" id="run-search" ${state.loading ? 'disabled' : ''}>${state.loading ? 'Searching…' : 'Search'}</button>
+      </div>
+      <div class="chips">${presets.map((p) => `<button class="chip" data-preset="${esc(p)}">${esc(p)}</button>`).join('')}</div>
+      ${state.error ? `<p class="error">${esc(state.error)}</p>` : ''}
+    </section>
+
+    <section class="layout">
+      <section class="panel list-panel">
+        <h2>Results (${state.contacts.length})</h2>
+        ${state.loading ? '<p>Loading contacts…</p>' : ''}
+        ${!state.loading && !state.contacts.length ? '<p>No results yet. Try a broad networking query.</p>' : ''}
+        <div class="table-wrap">
+          ${state.contacts
+            .map(
+              (c) => `
+              <button class="contact-row ${state.selected?.id === c.id ? 'active' : ''}" data-contact="${c.id}">
+                <div><strong>${esc(c.fullName)}</strong><p>${esc(c.title || 'Unknown role')} · ${esc(c.company || 'Unknown company')}</p></div>
+                <span>${Math.round((c.confidence || 0) * 100)}%</span>
+              </button>
+            `,
+            )
+            .join('')}
+        </div>
+      </section>
+
+      <section class="panel detail-panel">
+        <h2>Contact detail</h2>
+        ${
+          state.selected
+            ? `
+              <h3>${esc(state.selected.fullName)}</h3>
+              <p>${esc(state.selected.title || '')} ${state.selected.company ? `at ${esc(state.selected.company)}` : ''}</p>
+              <p>${esc(state.selected.location || 'Location unavailable')}</p>
+              <p>${esc(state.selected.summary || 'No summary available.')}</p>
+              <p><strong>Source:</strong> ${esc(state.selected.source)}</p>
+              <p><strong>Match:</strong> ${esc(state.selected.matchExplanation || '')}</p>
+              ${state.selected.profileUrl ? `<p><a target="_blank" rel="noopener" href="${esc(state.selected.profileUrl)}">Profile URL</a></p>` : ''}
+              ${state.selected.email ? `<p><strong>Email:</strong> ${esc(state.selected.email)}</p>` : '<p><strong>Email:</strong> Not ethically available from configured providers.</p>'}
+              <div class="actions">
+                <button class="btn" data-shortlist="${state.selected.id}">Favorite</button>
+                <button class="btn" data-copy-contact="${state.selected.id}">Copy profile link</button>
+              </div>
+            `
+            : '<p>Select a contact to open details.</p>'
+        }
+      </section>
+    </section>
+
+    <section class="panel email-panel">
+      <h2>Generate outreach email</h2>
+      <div class="grid">
+        <label>Who you are<input name="whoTheyAre" value="${esc(state.emailForm.whoTheyAre)}" /></label>
+        <label>Your background<textarea name="background">${esc(state.emailForm.background)}</textarea></label>
+        <label>Why you are reaching out<textarea name="whyReachingOut">${esc(state.emailForm.whyReachingOut)}</textarea></label>
+        <label>What you are asking for<textarea name="ask">${esc(state.emailForm.ask)}</textarea></label>
+        <label>Tone
+          <select name="tone">
+            ${['professional', 'warm', 'casual', 'formal', 'direct'].map((t) => `<option ${state.emailForm.tone === t ? 'selected' : ''}>${t}</option>`).join('')}
+          </select>
+        </label>
+        <label>Extra notes<textarea name="extraNotes">${esc(state.emailForm.extraNotes)}</textarea></label>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="generate-email" ${state.emailLoading || !state.selected ? 'disabled' : ''}>${state.emailLoading ? 'Generating…' : 'Generate'}</button>
+        <button class="btn" data-edit="regenerate" ${!state.generated ? 'disabled' : ''}>Regenerate</button>
+        <button class="btn" data-edit="shorten" ${!state.generated ? 'disabled' : ''}>Shorten</button>
+        <button class="btn" data-edit="make warmer" ${!state.generated ? 'disabled' : ''}>Make warmer</button>
+        <button class="btn" data-edit="make more direct" ${!state.generated ? 'disabled' : ''}>Make more direct</button>
+      </div>
+      ${state.emailError ? `<p class="error">${esc(state.emailError)}</p>` : ''}
+      ${
+        state.generated
+          ? `<article class="draft">
+              <h3>Subject</h3><p>${esc(state.generated.subject)}</p>
+              <h3>Full cold email</h3><pre>${esc(state.generated.full)}</pre>
+              <h3>Shorter version</h3><pre>${esc(state.generated.shorter)}</pre>
+              <h3>More casual version</h3><pre>${esc(state.generated.casual)}</pre>
+              <h3>More formal version</h3><pre>${esc(state.generated.formal)}</pre>
+              <button class="btn" id="copy-email">Copy full email</button>
+            </article>`
+          : ''
+      }
+    </section>
+
+    <section class="panel utility-panel">
+      <h2>Saved / recent</h2>
+      <p><strong>Favorites:</strong> ${state.shortlisted.map((c) => esc(c.fullName)).join(', ') || 'None yet'}</p>
+      <p><strong>Recent drafts:</strong> ${state.drafts.slice(0, 3).map((d) => esc(d.subject)).join(' | ') || 'None yet'}</p>
+      ${
+        state.providerDebug
+          ? `<pre>${esc(JSON.stringify(state.providerDebug, null, 2))}</pre>`
+          : '<p>Use “Provider status” to verify key setup and provider health.</p>'
+      }
+    </section>
+  </main>`;
 }
 
-
-function getContactById(contactId) {
-  return state.contacts.find((c) => c.id === contactId) || mockContacts.find((c) => c.id === contactId);
-}
-
-function buildRecipient(contact) {
-  if (!contact) return null;
-  if (contact.email) return `${contact.name} <${contact.email}>`;
-  return `${contact.name} <${contact.id}@example.com>`;
-}
-
-function buildSender(profile) {
-  if (!profile?.email) return null;
-  if (profile.name) return `${profile.name} <${profile.email}>`;
-  return profile.email;
-}
-
-function upsertDraft(newDraft) {
-  const exists = state.drafts.some((d) => d.contactId === newDraft.contactId && d.goal === newDraft.goal);
-  if (!exists) state.drafts.unshift(newDraft);
-}
-
-function parseDiscoveryQuery(query = "") {
-  const normalized = query.toLowerCase().trim();
-  const compact = normalized.replace(/[^a-z0-9\s&/]+/g, " ");
-
-  const rolePatterns = [
-    { key: "professor", value: "Professor", pattern: /\bprofessor(s)?\b|\bprof\b/ },
-    { key: "software engineer", value: "Software Engineer", pattern: /\bswe\b|\bsoftware engineer(s)?\b|\bengineer(s)?\b/ },
-    { key: "investment banking", value: "Investment Banking", pattern: /\binvestment banking\b|\bib\b|\binvestment banker(s)?\b/ },
-    { key: "researcher", value: "Researcher", pattern: /\bresearch(er|ers| scientist| scientists)?\b/ },
-    { key: "alumni", value: "Alumni", pattern: /\balumni\b|\balum\b|\balumni\b/ },
-  ];
-
-  const organizationPatterns = [
-    { key: "google", value: "Google", pattern: /\bgoogle\b/ },
-    { key: "jpmorgan", value: "JPMorgan", pattern: /\bjp\s?morgan\b|\bjpmorgan\b|\bjpm\b/ },
-    { key: "ibm", value: "IBM", pattern: /\bibm\b/ },
-    { key: "ut austin", value: "UT Austin", pattern: /\but austin\b|\butaustin\b|\butexas\b/ },
-    { key: "harvard", value: "Harvard", pattern: /\bharvard\b/ },
-  ];
-
-  const domainPatterns = [
-    { key: "ai", value: "AI", pattern: /\bai\b|\bartificial intelligence\b|\bmachine learning\b|\bml\b/ },
-    { key: "biotech", value: "Biotech", pattern: /\bbio\b|\bbiotech\b|\bbiotechnology\b|\blife sciences\b/ },
-    { key: "finance", value: "Finance", pattern: /\bfinance\b|\bfintech\b|\bbanking\b/ },
-    { key: "consulting", value: "Consulting", pattern: /\bconsulting\b|\bconsultant(s)?\b/ },
-  ];
-
-  const collectMatches = (patterns) => patterns.filter(({ pattern }) => pattern.test(compact)).map(({ value }) => value);
-
-  const roles = collectMatches(rolePatterns);
-  const organizations = collectMatches(organizationPatterns);
-  const domains = collectMatches(domainPatterns);
-  const matchedCount = roles.length + organizations.length + domains.length;
-  const matchedGroups = [roles, organizations, domains].filter((group) => group.length > 0).length;
-  const confidence = Math.min(1, matchedCount * 0.2 + matchedGroups * 0.15 + (compact.length > 3 ? 0.1 : 0));
-
-  return {
-    rawQuery: query.trim(),
-    filters: { roles, organizations, domains },
-    confidence,
-  };
-}
-
-async function runDiscoverySearch(intent) {
-  const payload = {
-    query: intent.rawQuery,
-    filters: intent.filters,
-    confidence: intent.confidence,
-    fallbackToBroad: intent.confidence < 0.35,
-  };
-
-  const response = await fetch("/api/discovery/search", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(result.error || "Unable to generate contacts right now.");
-  }
-  return Array.isArray(result.contacts) ? result.contacts : [];
-}
-
-async function sendDraft(draftId) {
-  const d = state.drafts.find((x) => x.id === draftId);
-  if (!d || state.sendingDraftIds.includes(draftId)) return;
-
-  state.sendErrors[draftId] = "";
-  state.sendingDraftIds = [...state.sendingDraftIds, draftId];
+async function runSearch() {
+  state.loading = true;
+  state.error = '';
+  state.contacts = [];
+  state.selected = null;
   render();
 
   try {
-    const contact = getContactById(d.contactId);
-    const recipient = buildRecipient(contact);
+    const response = await fetch('/api/search/people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: state.query, limit: 15 }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.userMessage || payload.error || 'Search failed');
+    state.contacts = Array.isArray(payload.contacts) ? payload.contacts : [];
+    state.selected = state.contacts[0] || null;
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : 'Search failed';
+  } finally {
+    state.loading = false;
+    render();
+  }
+}
 
-    if (!recipient) {
-      throw new Error("Unable to resolve a recipient email address for this contact.");
-    }
+async function generateEmail(editInstruction = '') {
+  if (!state.selected) return;
 
-    const sender = buildSender(state.profile);
-    if (!sender) {
-      throw new Error("Add your email in onboarding before sending messages.");
-    }
+  state.emailLoading = true;
+  state.emailError = '';
+  render();
 
-    const response = await fetch("/api/email/send", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Idempotency-Key": d.id,
-      },
+  try {
+    const response = await fetch('/api/email/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        to: recipient,
-        subject: d.subject,
-        body: d.body,
-        contactId: d.contactId,
-        goal: d.goal,
-        draftId: d.id,
-        from: sender,
+        query: state.query,
+        editInstruction,
+        contact: state.selected,
+        profile: {
+          name: state.emailForm.whoTheyAre,
+          whoTheyAre: state.emailForm.whoTheyAre,
+          background: state.emailForm.background,
+        },
+        request: {
+          whyReachingOut: state.emailForm.whyReachingOut,
+          ask: state.emailForm.ask,
+          tone: state.emailForm.tone,
+          extraNotes: state.emailForm.extraNotes,
+        },
       }),
     });
-
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(result.error || result.details || "Unable to send message.");
-    }
-
-    d.status = "Sent";
-    d.nextAction = "Set follow-up in 5 days";
-    state.sent.push(d);
-    state.drafts = state.drafts.filter((x) => x.id !== draftId);
-    delete state.sendErrors[draftId];
-    setRoute("dashboard");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.userMessage || payload.error || 'Email generation failed');
+    state.generated = payload.draft;
+    state.drafts.unshift(payload.draft);
   } catch (error) {
-    state.sendErrors[draftId] = error instanceof Error ? error.message : "Unable to send message.";
-    render();
+    state.emailError = error instanceof Error ? error.message : 'Email generation failed';
   } finally {
-    state.sendingDraftIds = state.sendingDraftIds.filter((id) => id !== draftId);
+    state.emailLoading = false;
     render();
   }
 }
 
-function wireEvents() {
-  document.querySelectorAll("[data-route]").forEach((el) => el.addEventListener("click", (e) => setRoute(e.currentTarget.dataset.route)));
-
-  if (state.route === "onboarding") {
-    document.querySelectorAll("input[name], textarea[name]").forEach((el) => {
-      el.addEventListener("input", (e) => {
-        const key = e.currentTarget.name;
-        state.profile[key] = e.currentTarget.value;
-      });
-    });
-    document.querySelectorAll("input[type='checkbox'][name='opportunities']").forEach((el) => {
-      el.addEventListener("change", (e) => {
-        const value = e.currentTarget.value;
-        state.profile.opportunities = e.currentTarget.checked
-          ? [...state.profile.opportunities, value]
-          : state.profile.opportunities.filter((x) => x !== value);
-      });
-    });
-
-    document.getElementById("save-profile")?.addEventListener("click", () => {
-      setRoute("discovery");
-    });
-  }
-
-  if (state.route === "discovery") {
-    document.querySelectorAll("[data-query]").forEach((el) =>
-      el.addEventListener("click", (e) => {
-        document.getElementById("query-input").value = e.currentTarget.dataset.query;
-      })
-    );
-
-    document.getElementById("generate-bank")?.addEventListener("click", async () => {
-      const query = document.getElementById("query-input").value || "";
-      const intent = parseDiscoveryQuery(query);
-      try {
-        const contacts = await runDiscoverySearch(intent);
-        state.contacts = contacts.sort((a, b) => b.confidence - a.confidence);
-      } catch (_error) {
-        state.contacts = [...mockContacts].sort((a, b) => b.confidence - a.confidence);
-      }
-      state.swipeIndex = 0;
-      render();
-    });
-
-    document.querySelectorAll("[data-save]").forEach((el) =>
-      el.addEventListener("click", (e) => {
-        const c = state.contacts.find((x) => x.id === e.currentTarget.dataset.save);
-        if (c && !state.saved.some((s) => s.id === c.id)) state.saved.push(c);
-        render();
-      })
-    );
-
-    document.querySelectorAll("[data-draft]").forEach((el) =>
-      el.addEventListener("click", (e) => {
-        const c = state.contacts.find((x) => x.id === e.currentTarget.dataset.draft);
-        if (c) upsertDraft(generateDraft(c, c.category, "network"));
-        setRoute("drafts");
-      })
-    );
-  }
-
-  if (state.route === "swipe") {
-    wireSwipeDrag();
-
-    document.querySelector("[data-skip]")?.addEventListener("click", () => {
-      animateSwipe("left", () => {
-        state.swipeIndex += 1;
-      });
-    });
-
-    document.querySelector("[data-save]")?.addEventListener("click", (e) => {
-      const c = state.contacts.find((x) => x.id === e.currentTarget.dataset.save);
-      if (c && !state.saved.some((s) => s.id === c.id)) state.saved.push(c);
-      render();
-    });
-
-    document.querySelector("[data-interest]")?.addEventListener("click", (e) => {
-      const id = e.currentTarget.dataset.interest;
-      const c = state.contacts.find((x) => x.id === id);
-      const goal = document.getElementById("swipe-goal").value;
-      animateSwipe("right", () => {
-        if (c) upsertDraft(generateDraft(c, goal, "coffee"));
-        state.swipeIndex += 1;
-      });
-    });
-  }
-
-  if (state.route === "drafts") {
-    document.querySelectorAll("[data-tone-id]").forEach((el) => {
-      el.addEventListener("change", (e) => {
-        const d = state.drafts.find((x) => x.id === e.currentTarget.dataset.toneId);
-        if (!d) return;
-        const contact = state.contacts.find((c) => c.id === d.contactId) || mockContacts.find((c) => c.id === d.contactId);
-        const refreshed = generateDraft(contact, d.goal, e.currentTarget.value);
-        d.tone = refreshed.tone;
-        d.subject = refreshed.subject;
-        d.body = refreshed.body;
-        d.personalization = refreshed.personalization;
-        render();
-      });
-    });
-
-    document.querySelectorAll("[data-subject-id]").forEach((el) => {
-      el.addEventListener("input", (e) => {
-        const d = state.drafts.find((x) => x.id === e.currentTarget.dataset.subjectId);
-        if (d) d.subject = e.currentTarget.value;
-      });
-    });
-
-    document.querySelectorAll("[data-body-id]").forEach((el) => {
-      el.addEventListener("input", (e) => {
-        const d = state.drafts.find((x) => x.id === e.currentTarget.dataset.bodyId);
-        if (d) d.body = e.currentTarget.value;
-      });
-    });
-
-    document.querySelectorAll("[data-schedule]").forEach((el) => {
-      el.addEventListener("click", (e) => {
-        const id = e.currentTarget.dataset.schedule;
-        const d = state.drafts.find((x) => x.id === id);
-        if (!d) return;
-        d.status = "Scheduled";
-        d.nextAction = "Auto-send Monday 8:30 AM";
-        state.scheduled.push(d);
-        state.drafts = state.drafts.filter((x) => x.id !== id);
-        setRoute("dashboard");
-      });
-    });
-
-    document.querySelectorAll("[data-send]").forEach((el) => {
-      el.addEventListener("click", async (e) => {
-        const id = e.currentTarget.dataset.send;
-        await sendDraft(id);
-      });
-    });
-  }
+async function checkProviders() {
+  const response = await fetch('/api/debug/providers');
+  state.providerDebug = await response.json();
+  render();
 }
 
-function wireSwipeDrag() {
-  const swipeCard = document.querySelector("[data-swipe-card]");
-  if (!swipeCard || state.swipeAnimating) return;
+document.addEventListener('click', async (event) => {
+  const target = event.target;
 
-  const stage = document.querySelector(".swipe-stage");
-  const leftBadge = swipeCard.querySelector(".swipe-badge-left");
-  const rightBadge = swipeCard.querySelector(".swipe-badge-right");
-  const threshold = 110;
-  const releaseDistance = 130;
-  let pointerId = null;
-  let startX = 0;
-  let currentX = 0;
-  let dragging = false;
+  if (target.matches('[data-preset]')) {
+    state.query = target.getAttribute('data-preset') || '';
+    render();
+  }
 
-  const setDragStyle = (offsetX) => {
-    const rotation = Math.max(-14, Math.min(14, offsetX * 0.06));
-    swipeCard.style.transition = "none";
-    swipeCard.style.transform = `translateX(${offsetX}px) rotate(${rotation}deg)`;
-    if (stage) {
-      const reveal = Math.min(1, Math.abs(offsetX) / threshold);
-      stage.style.setProperty("--reveal", reveal.toFixed(3));
-    }
-    if (leftBadge && rightBadge) {
-      leftBadge.style.opacity = offsetX < 0 ? Math.min(1, Math.abs(offsetX) / threshold) : 0;
-      rightBadge.style.opacity = offsetX > 0 ? Math.min(1, Math.abs(offsetX) / threshold) : 0;
-    }
-  };
+  if (target.id === 'run-search') await runSearch();
 
-  const resetCard = () => {
-    swipeCard.style.transition = "transform .22s ease";
-    swipeCard.style.transform = "";
-    if (stage) stage.style.setProperty("--reveal", "0");
-    if (leftBadge && rightBadge) {
-      leftBadge.style.opacity = 0;
-      rightBadge.style.opacity = 0;
-    }
-  };
+  if (target.matches('[data-contact]')) {
+    const contactId = target.getAttribute('data-contact');
+    state.selected = state.contacts.find((c) => c.id === contactId) || null;
+    render();
+  }
 
-  const completeDragSwipe = (direction) => {
-    if (state.swipeAnimating) return;
-    state.swipeAnimating = true;
-    swipeCard.style.transition = "transform .28s cubic-bezier(.19,.95,.31,1)";
-    swipeCard.style.transform = `translateX(${direction === "right" ? 135 : -135}vw) rotate(${direction === "right" ? 20 : -20}deg)`;
-    swipeCard.style.opacity = "0";
-    window.setTimeout(() => {
-      if (direction === "right") {
-        const c = state.contacts[state.swipeIndex];
-        const goal = document.getElementById("swipe-goal")?.value || goalOptions[0];
-        if (c) upsertDraft(generateDraft(c, goal, "coffee"));
-      }
-      state.swipeIndex += 1;
-      state.swipeAnimating = false;
-      state.swipeDirection = null;
-      render();
-    }, 280);
-  };
+  if (target.matches('[data-shortlist]')) {
+    const c = state.contacts.find((item) => item.id === target.getAttribute('data-shortlist'));
+    if (c && !state.shortlisted.some((item) => item.id === c.id)) state.shortlisted.unshift(c);
+    render();
+  }
 
-  swipeCard.addEventListener("pointerdown", (e) => {
-    if (state.swipeAnimating) return;
-    if (e.target.closest("button, input, select, textarea, a, label")) return;
-    pointerId = e.pointerId;
-    dragging = true;
-    startX = e.clientX;
-    currentX = 0;
-    swipeCard.setPointerCapture(pointerId);
-  });
+  if (target.matches('[data-copy-contact]')) {
+    const c = state.contacts.find((item) => item.id === target.getAttribute('data-copy-contact'));
+    if (c?.profileUrl) await navigator.clipboard.writeText(c.profileUrl);
+  }
 
-  swipeCard.addEventListener("pointermove", (e) => {
-    if (!dragging || e.pointerId !== pointerId) return;
-    currentX = e.clientX - startX;
-    setDragStyle(currentX);
-  });
+  if (target.id === 'generate-email') await generateEmail('');
 
-  const endDrag = (e) => {
-    if (!dragging || e.pointerId !== pointerId) return;
-    dragging = false;
-    swipeCard.releasePointerCapture(pointerId);
-    pointerId = null;
-    if (Math.abs(currentX) >= releaseDistance) {
-      completeDragSwipe(currentX > 0 ? "right" : "left");
-      return;
-    }
-    resetCard();
-  };
+  if (target.matches('[data-edit]')) {
+    const cmd = target.getAttribute('data-edit') || '';
+    await generateEmail(cmd);
+  }
 
-  swipeCard.addEventListener("pointerup", endDrag);
-  swipeCard.addEventListener("pointercancel", endDrag);
-}
+  if (target.id === 'copy-email' && state.generated?.full) {
+    await navigator.clipboard.writeText(`Subject: ${state.generated.subject}\n\n${state.generated.full}`);
+  }
+
+  if (target.id === 'provider-check') await checkProviders();
+});
+
+document.addEventListener('input', (event) => {
+  const target = event.target;
+  if (target.id === 'query') {
+    state.query = target.value;
+    return;
+  }
+
+  if (target.name && Object.hasOwn(state.emailForm, target.name)) {
+    state.emailForm[target.name] = target.value;
+  }
+});
 
 render();
