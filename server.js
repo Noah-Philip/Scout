@@ -1,170 +1,117 @@
-import express from "express";
-import nodemailer from "nodemailer";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { getPeopleSearchMode, searchPeople } from "./services/peopleSearch.js";
+import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { searchPeople, getPeopleSearchMode } from './services/peopleSearch.js';
+import { generateEmailDraft, getOpenAIClient } from './services/providers/openaiProvider.js';
+import { logError, logInfo } from './services/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = process.env.PORT || 4173;
+const port = Number(process.env.PORT || 4173);
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(express.static(__dirname));
 
-const requiredEnv = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"];
-
-function getMissingConfig() {
-  return requiredEnv.filter((name) => !process.env[name]);
+function providerStatus() {
+  return {
+    peopleSearch: {
+      provider: 'SerpAPI Google + LinkedIn result parsing',
+      configured: Boolean(process.env.SERPAPI_API_KEY),
+      envVar: 'SERPAPI_API_KEY',
+    },
+    emailEnrichment: {
+      provider: 'Hunter domain search (optional)',
+      configured: Boolean(process.env.HUNTER_API_KEY),
+      envVar: 'HUNTER_API_KEY',
+    },
+    llm: {
+      provider: 'OpenAI',
+      configured: Boolean(process.env.OPENAI_API_KEY),
+      envVar: 'OPENAI_API_KEY',
+      model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+      fallback: !process.env.OPENAI_API_KEY,
+    },
+  };
 }
 
-function createTransporter() {
-  const missing = getMissingConfig();
-  if (missing.length > 0) {
-    throw new Error(`Missing email environment configuration: ${missing.join(", ")}`);
+app.get('/api/debug/providers', (_req, res) => {
+  res.status(200).json({
+    mode: getPeopleSearchMode(),
+    status: providerStatus(),
+    checkedAt: new Date().toISOString(),
+  });
+});
+
+app.post('/api/search/people', async (req, res) => {
+  const { query, limit } = req.body || {};
+
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({
+      error: 'query (string) is required',
+      developerMessage: 'Send JSON body: { "query": "software engineers at Google", "limit": 12 }',
+    });
   }
 
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT),
-    secure: Number(process.env.SMTP_PORT) === 465,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-}
-
-const deliveryByIdempotencyKey = new Map();
-
-function tokenize(input = "") {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-}
-
-function includesAnyTerm(haystack, terms) {
-  if (!terms || terms.length === 0) return true;
-  return terms.some((term) => haystack.includes(term.toLowerCase()));
-}
-
-app.post("/api/discovery/search", (req, res) => {
-  const { query = "", filters = {}, fallbackToBroad = false } = req.body || {};
-  const roles = Array.isArray(filters.roles) ? filters.roles : [];
-  const organizations = Array.isArray(filters.organizations) ? filters.organizations : [];
-  const domains = Array.isArray(filters.domains) ? filters.domains : [];
-
-  const queryTokens = tokenize(query);
-  const contacts = [...mockContacts].filter((contact) => {
-    const searchable = `${contact.role} ${contact.organization} ${contact.tags.join(" ")} ${contact.bio} ${contact.relevance}`.toLowerCase();
-
-    if (fallbackToBroad || (roles.length === 0 && organizations.length === 0 && domains.length === 0)) {
-      if (queryTokens.length === 0) return true;
-      return queryTokens.some((token) => searchable.includes(token));
+  try {
+    const result = await searchPeople({ query, limit });
+    if (!result.contacts.length) {
+      return res.status(200).json({
+        ...result,
+        userMessage: 'No matching contacts were found. Try a broader search query.',
+      });
     }
 
-    const roleMatch = includesAnyTerm(contact.role.toLowerCase(), roles);
-    const orgMatch = includesAnyTerm(contact.organization.toLowerCase(), organizations);
-    const domainMatch = includesAnyTerm(`${contact.tags.join(" ")} ${contact.bio}`.toLowerCase(), domains);
-    return roleMatch && orgMatch && domainMatch;
-  });
+    return res.status(200).json(result);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    logError('People search failed', { query, error: msg });
 
-  return res.status(200).json({ contacts });
+    const statusCode = msg.includes('missing') ? 503 : msg.includes('(429)') ? 429 : 502;
+    return res.status(statusCode).json({
+      error: 'People search is currently unavailable.',
+      userMessage: 'Search provider is unavailable right now. Please try again shortly.',
+      developerMessage: msg,
+    });
+  }
 });
 
-app.post("/api/email/send", async (req, res) => {
-  const { to, subject, body, contactId, goal, draftId, from } = req.body || {};
-  const idempotencyKey = req.get("Idempotency-Key") || draftId;
+app.post('/api/email/generate', async (req, res) => {
+  const { contact, profile, request, query, editInstruction } = req.body || {};
 
-  if (!to || !subject || !body || !contactId || !goal || !draftId || !from) {
-    return res.status(400).json({ error: "to, subject, body, contactId, goal, draftId, and from are required." });
+  if (!contact || !contact.fullName) {
+    return res.status(400).json({
+      error: 'contact with fullName is required',
+      developerMessage: 'Send body with contact object from search results.',
+    });
   }
 
-  if (!idempotencyKey) {
-    return res.status(400).json({ error: "An idempotency key is required." });
-  }
-
-  const emailAddressRegex = /<([^>]+)>$/;
-  const extractedTo = typeof to === "string" ? (to.match(emailAddressRegex)?.[1] || to).trim() : "";
-  const extractedFrom = typeof from === "string" ? (from.match(emailAddressRegex)?.[1] || from).trim() : "";
-
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(extractedTo)) {
-    return res.status(400).json({ error: "Recipient email address is invalid." });
-  }
-
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(extractedFrom)) {
-    return res.status(400).json({ error: "Sender email address is invalid." });
-  }
-
-  const existingDelivery = deliveryByIdempotencyKey.get(idempotencyKey);
-  if (existingDelivery) {
-    return res.status(200).json({
-      ok: true,
-      duplicate: true,
-      messageId: existingDelivery.messageId,
-      sentAt: existingDelivery.sentAt,
+  if (!profile || !request) {
+    return res.status(400).json({
+      error: 'profile and request objects are required',
+      developerMessage: 'profile: who they are/background, request: why/ask/tone',
     });
   }
 
   try {
-    const transporter = createTransporter();
-    const info = await transporter.sendMail({
-      from,
-      to,
-      subject,
-      text: body,
-      headers: {
-        "X-Contact-Id": String(contactId),
-        "X-Outreach-Goal": String(goal),
-        "X-Draft-Id": String(draftId),
-        "Idempotency-Key": String(idempotencyKey),
-      },
-    });
-
-    const delivery = {
-      messageId: info.messageId || idempotencyKey,
-      sentAt: new Date().toISOString(),
-    };
-
-    deliveryByIdempotencyKey.set(idempotencyKey, delivery);
-
-    return res.status(200).json({ ok: true, duplicate: false, ...delivery });
+    const draft = await generateEmailDraft({ contact, profile, request, query: query || '', editInstruction });
+    return res.status(200).json({ draft, generatedAt: new Date().toISOString() });
   } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    logError('Email generation failed', { contact: contact.fullName, error: msg });
     return res.status(502).json({
-      error: "Failed to send email via SMTP provider.",
-      details: error instanceof Error ? error.message : "Unknown error",
+      error: 'Could not generate email draft',
+      userMessage: 'Email generation failed. Please retry.',
+      developerMessage: msg,
     });
   }
 });
 
-
-app.post("/api/search/people", async (req, res) => {
-  const { query, intent, limit } = req.body || {};
-
-  if (!query || typeof query !== "string") {
-    return res.status(400).json({ error: "query (string) is required." });
-  }
-
-  try {
-    const searchResponse = await searchPeople({ query, intent, limit });
-    return res.status(200).json(searchResponse);
-  } catch (error) {
-    return res.status(502).json({
-      error: "Failed to fetch people search results.",
-      details: error instanceof Error ? error.message : "Unknown error",
-      provider: getPeopleSearchMode(),
-    });
-  }
-});
-
-app.get("*", (_req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`Scout running on http://localhost:${port}`);
+  logInfo('Scout server started', { port, hasOpenAI: Boolean(getOpenAIClient()) });
 });
