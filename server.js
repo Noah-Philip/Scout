@@ -2,7 +2,7 @@ import express from "express";
 import nodemailer from "nodemailer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mockContacts } from "./data.js";
+import { getPeopleSearchMode, searchPeople } from "./services/peopleSearch.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -136,6 +136,26 @@ app.post("/api/email/send", async (req, res) => {
     return res.status(502).json({
       error: "Failed to send email via SMTP provider.",
       details: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+
+app.post("/api/search/people", async (req, res) => {
+  const { query, intent, limit } = req.body || {};
+
+  if (!query || typeof query !== "string") {
+    return res.status(400).json({ error: "query (string) is required." });
+  }
+
+  try {
+    const searchResponse = await searchPeople({ query, intent, limit });
+    return res.status(200).json(searchResponse);
+  } catch (error) {
+    return res.status(502).json({
+      error: "Failed to fetch people search results.",
+      details: error instanceof Error ? error.message : "Unknown error",
+      provider: getPeopleSearchMode(),
     });
   }
 });
