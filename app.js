@@ -84,7 +84,6 @@ const state = {
   profileSavedAt: savedApp?.profileSavedAt || null,
   drafts: Array.isArray(savedApp?.drafts) ? savedApp.drafts : [],
   sentEmails: Array.isArray(savedApp?.sentEmails) ? savedApp.sentEmails : [],
-  savedContacts: Array.isArray(savedApp?.savedContacts) ? savedApp.savedContacts : [],
   reachedOut: Array.isArray(savedApp?.reachedOut) ? savedApp.reachedOut : [],
   swipeDecisions: savedApp?.swipeDecisions || {},
   emailLoading: false,
@@ -110,7 +109,6 @@ function persistState() {
       selectedContactId: state.selectedContactId,
       drafts: state.drafts,
       sentEmails: state.sentEmails,
-      savedContacts: state.savedContacts,
       reachedOut: state.reachedOut,
       swipeDecisions: state.swipeDecisions,
       generated: state.generated,
@@ -135,19 +133,22 @@ function getSelectedContact() {
   return getContactById(state.selectedContactId);
 }
 
-function saveContact(contact, source = 'search') {
+function ensureDraftForContact(contact, source = 'swipe') {
   if (!contact) return;
-  if (state.savedContacts.some((saved) => saved.contactId === contact.id)) return;
-  state.savedContacts.unshift({
-    id: uid('saved'),
+  if (state.drafts.some((draft) => draft.contactId === contact.id && draft.status !== 'sent')) return;
+  state.drafts.unshift({
+    id: uid('draft'),
     contactId: contact.id,
-    fullName: contact.fullName,
-    title: contact.title,
+    contactName: contact.fullName,
+    subject: `Intro request from ${state.profile.name || 'a student'}`,
+    full: '',
+    opener: '',
+    middle: '',
+    close: '',
     company: contact.company,
     source,
-    status: 'saved',
-    followUpState: 'not started',
-    createdAt: new Date().toISOString(),
+    status: 'interested',
+    updatedAt: new Date().toISOString(),
   });
   persistState();
 }
@@ -264,7 +265,6 @@ function renderLanding() {
 
 function contactCard(contact) {
   const isSelected = state.selectedContactId === contact.id;
-  const isSaved = state.savedContacts.some((saved) => saved.contactId === contact.id);
 
   return `
     <article class="result-card ${isSelected ? 'selected' : ''}">
@@ -278,7 +278,7 @@ function contactCard(contact) {
         <span>${esc(contact.source || 'web')}</span>
       </div>
       <div class="actions">
-        <button class="btn" data-save-contact="${contact.id}" ${isSaved ? 'disabled' : ''}>${isSaved ? 'Saved' : 'Save'}</button>
+        <button class="btn" data-mark-interested="${contact.id}">Interested</button>
         <button class="btn" data-open-draft="${contact.id}">Draft</button>
         ${contact.profileUrl ? `<a class="btn link-btn" href="${esc(contact.profileUrl)}" target="_blank" rel="noopener">Source</a>` : ''}
       </div>
@@ -308,7 +308,7 @@ function renderSearch() {
       <section class="panel">
         <div class="section-title-row"><h2>Results (${state.contacts.length})</h2><button class="btn" data-route="swipe" ${state.contacts.length ? '' : 'disabled'}>Open swipe deck</button></div>
         ${state.loading ? '<p>Loading results…</p>' : ''}
-        ${!state.loading && !state.contacts.length ? '<p class="muted">Run a search to load people you can swipe, save, and draft outreach for.</p>' : ''}
+        ${!state.loading && !state.contacts.length ? '<p class="muted">Run a search to load people you can swipe, mark interested, and draft outreach for.</p>' : ''}
         <div class="result-list">${state.contacts.map(contactCard).join('')}</div>
       </section>
 
@@ -328,7 +328,7 @@ function renderSearch() {
             </div>
             <div class="actions">
               <button class="btn primary" data-open-draft="${selected.id}">Generate draft</button>
-              <button class="btn" data-save-contact="${selected.id}">Save contact</button>
+              <button class="btn" data-mark-interested="${selected.id}">Mark interested</button>
             </div>
           `
             : '<p class="muted">Select a search result to preview details and generate outreach.</p>'
@@ -378,7 +378,7 @@ function renderSwipe() {
   return `
     <section class="page-head">
       <h1>Swipe prospects</h1>
-      <p>Right = interested, left = skip. Save or draft directly from the deck.</p>
+      <p>Right = interested, left = skip. Interested contacts go straight into your current drafts queue.</p>
     </section>
 
     <section class="swipe-layout">
@@ -411,7 +411,6 @@ function renderSwipe() {
 
         <div class="swipe-actions">
           <button class="btn danger" data-swipe-action="left" ${top ? '' : 'disabled'}>Skip</button>
-          <button class="btn" data-swipe-action="save" ${top ? '' : 'disabled'}>Save for later</button>
           <button class="btn primary" data-swipe-action="right" ${top ? '' : 'disabled'}>Interested</button>
           <button class="btn" data-open-draft="${top?.id || ''}" ${top ? '' : 'disabled'}>Quick draft</button>
         </div>
@@ -420,7 +419,6 @@ function renderSwipe() {
       <aside class="panel">
         <h3>Swipe outcomes</h3>
         <p><strong>Interested:</strong> ${Object.values(state.swipeDecisions).filter((v) => v === 'interested').length}</p>
-        <p><strong>Saved:</strong> ${state.savedContacts.length}</p>
         <p><strong>Skipped:</strong> ${Object.values(state.swipeDecisions).filter((v) => v === 'skipped').length}</p>
         <button class="btn" data-route="dashboard">View outreach dashboard</button>
       </aside>
@@ -483,7 +481,7 @@ function renderDashboard() {
   const draftRows = state.drafts
     .map(
       (draft) => `
-      <article class="dash-item">
+      <article class="dash-item" role="button" tabindex="0" data-open-draft="${draft.contactId}">
         <div>
           <h4>${esc(draft.subject)}</h4>
           <p class="muted small">${esc(draft.contactName)} · ${esc(draft.company || 'Unknown')}</p>
@@ -508,20 +506,6 @@ function renderDashboard() {
     )
     .join('');
 
-  const savedRows = state.savedContacts
-    .map(
-      (contact) => `
-      <article class="dash-item">
-        <div>
-          <h4>${esc(contact.fullName)}</h4>
-          <p class="muted small">${esc(contact.title || 'Role unavailable')} · ${esc(contact.company || 'Unknown')}</p>
-        </div>
-        <span class="pill">${esc(contact.status)}</span>
-      </article>
-    `,
-    )
-    .join('');
-
   const outreachRows = state.reachedOut
     .map(
       (item) => `
@@ -539,7 +523,7 @@ function renderDashboard() {
   return `
     <section class="page-head">
       <h1>Outreach dashboard</h1>
-      <p>Your control center for drafts, sent outreach, saved leads, and follow-ups.</p>
+      <p>Your control center for interested contacts, draft outreach, and follow-ups.</p>
     </section>
 
     <section class="dashboard-grid">
@@ -550,10 +534,6 @@ function renderDashboard() {
       <section class="panel">
         <h3>Sent emails</h3>
         ${sentRows || '<p class="muted">No sent emails tracked yet.</p>'}
-      </section>
-      <section class="panel">
-        <h3>Saved contacts</h3>
-        ${savedRows || '<p class="muted">No saved contacts yet.</p>'}
       </section>
       <section class="panel">
         <h3>Contacts reached out to</h3>
@@ -617,7 +597,7 @@ function attachSwipeDrag() {
 
     if (currentX > 120) {
       updateSwipeDecision(contactId, 'interested');
-      saveContact(getContactById(contactId), 'swipe');
+      ensureDraftForContact(getContactById(contactId), 'swipe');
       return;
     }
 
@@ -717,8 +697,11 @@ async function generateEmail(editInstruction = '') {
 
     state.generated = draft;
     state.activeDraftId = draft.id;
+    const existingDraftIndex = state.drafts.findIndex((item) => item.contactId === selected.id && item.status !== 'sent');
+    if (existingDraftIndex >= 0) {
+      state.drafts.splice(existingDraftIndex, 1);
+    }
     state.drafts.unshift(draft);
-    saveContact(selected, 'draft');
   } catch (error) {
     state.emailError = error instanceof Error ? error.message : 'Email generation failed';
   } finally {
@@ -757,10 +740,14 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  const saveBtn = target.closest('[data-save-contact]');
-  if (saveBtn) {
-    const contact = getContactById(saveBtn.getAttribute('data-save-contact'));
-    saveContact(contact);
+  const interestedBtn = target.closest('[data-mark-interested]');
+  if (interestedBtn) {
+    const contact = getContactById(interestedBtn.getAttribute('data-mark-interested'));
+    if (contact) {
+      state.swipeDecisions[contact.id] = 'interested';
+      ensureDraftForContact(contact, 'search');
+      persistState();
+    }
     render();
     return;
   }
@@ -768,7 +755,12 @@ document.addEventListener('click', async (event) => {
   const draftBtn = target.closest('[data-open-draft]');
   if (draftBtn) {
     const contactId = draftBtn.getAttribute('data-open-draft');
-    if (contactId) state.selectedContactId = contactId;
+    if (contactId) {
+      state.selectedContactId = contactId;
+      const draftForContact = state.drafts.find((draft) => draft.contactId === contactId && draft.status !== 'sent');
+      state.activeDraftId = draftForContact?.id || null;
+      persistState();
+    }
     navigate('draft');
     return;
   }
@@ -800,7 +792,7 @@ document.addEventListener('click', async (event) => {
 
     if (action === 'right') {
       updateSwipeDecision(top.id, 'interested');
-      saveContact(top, 'swipe');
+      ensureDraftForContact(top, 'swipe');
       return;
     }
 
@@ -809,11 +801,6 @@ document.addEventListener('click', async (event) => {
       return;
     }
 
-    if (action === 'save') {
-      updateSwipeDecision(top.id, 'saved');
-      saveContact(top, 'swipe');
-      return;
-    }
   }
 
   const activeDraft = state.activeDraftId ? state.drafts.find((draft) => draft.id === state.activeDraftId) : null;

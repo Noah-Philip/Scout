@@ -360,6 +360,14 @@ label {
   margin-bottom: 0.55rem;
 }
 
+.dash-item[role='button'] {
+  cursor: pointer;
+}
+
+.dash-item[role='button']:hover {
+  border-color: rgba(124, 92, 255, 0.6);
+}
+
 .dash-item h4 {
   margin: 0;
 }
@@ -420,7 +428,7 @@ label {
 .swipe-actions {
   margin-top: 0.85rem;
   display: grid;
-  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  grid-template-columns: repeat(3, minmax(100px, 1fr));
   gap: 0.45rem;
 }
 
