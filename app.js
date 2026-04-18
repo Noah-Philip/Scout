@@ -32,6 +32,34 @@ function uid(prefix = 'id') {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function normalizeContacts(contacts = []) {
+  const usedIds = new Set();
+
+  return contacts
+    .filter(Boolean)
+    .map((contact, index) => {
+      const safeContact = { ...contact };
+      const fallbackIdSource = safeContact.profileUrl || `${safeContact.fullName || 'contact'}-${safeContact.company || ''}-${index}`;
+      const fallbackId = `contact_${String(fallbackIdSource)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 42) || uid('contact')}`;
+      const baseId = String(safeContact.id || fallbackId);
+
+      let finalId = baseId;
+      let suffix = 1;
+      while (usedIds.has(finalId)) {
+        finalId = `${baseId}_${suffix}`;
+        suffix += 1;
+      }
+
+      usedIds.add(finalId);
+      safeContact.id = finalId;
+      return safeContact;
+    });
+}
+
 function readJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -50,7 +78,7 @@ const state = {
   query: savedApp?.query || '',
   loading: false,
   error: '',
-  contacts: Array.isArray(savedApp?.contacts) ? savedApp.contacts : [],
+  contacts: normalizeContacts(Array.isArray(savedApp?.contacts) ? savedApp.contacts : []),
   selectedContactId: savedApp?.selectedContactId || null,
   profile: { ...defaultProfile, ...(savedProfile || {}) },
   profileSavedAt: savedApp?.profileSavedAt || null,
@@ -68,6 +96,9 @@ const state = {
 const hasHashRoute = window.location.hash && routes.includes(window.location.hash.replace('#/', ''));
 if (hasHashRoute) state.route = window.location.hash.replace('#/', '');
 if (!state.selectedContactId && state.contacts[0]) state.selectedContactId = state.contacts[0].id;
+if (state.selectedContactId && !state.contacts.some((contact) => contact.id === state.selectedContactId)) {
+  state.selectedContactId = state.contacts[0]?.id || null;
+}
 
 function persistState() {
   localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(state.profile));
@@ -636,7 +667,7 @@ async function runSearch() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.userMessage || payload.error || 'Search failed');
 
-    state.contacts = Array.isArray(payload.contacts) ? payload.contacts : [];
+    state.contacts = normalizeContacts(Array.isArray(payload.contacts) ? payload.contacts : []);
     state.selectedContactId = state.contacts[0]?.id || null;
   } catch (error) {
     state.error = error instanceof Error ? error.message : 'Search failed';

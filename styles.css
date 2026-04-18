@@ -388,7 +388,7 @@ label {
   position: relative;
   border-radius: 14px;
   border: 1px dashed var(--line);
-  background: rgba(5, 8, 18, 0.68);
+  background: #0a1022;
   overflow: hidden;
 }
 
@@ -397,7 +397,7 @@ label {
   inset: 1rem;
   border-radius: 16px;
   border: 1px solid var(--line);
-  background: linear-gradient(160deg, rgba(124, 92, 255, 0.2), rgba(20, 31, 60, 0.85));
+  background: linear-gradient(160deg, #282152 0%, #141d3a 70%);
   padding: 1rem;
   transform: translateY(calc(var(--stack) * 8px)) scale(calc(1 - var(--stack) * 0.02));
   transition: transform 180ms ease, opacity 180ms ease;
