@@ -647,6 +647,7 @@ async function runSearch() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.userMessage || payload.error || 'Search failed');
 
+    state.swipeDecisions = {};
     state.contacts = normalizeContacts(Array.isArray(payload.contacts) ? payload.contacts : []);
     state.selectedContactId = state.contacts[0]?.id || null;
   } catch (error) {
