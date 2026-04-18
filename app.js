@@ -275,12 +275,12 @@ function contactCard(contact) {
       </button>
       <div class="result-meta">
         <span>${Math.round((contact.confidence || 0) * 100)}% fit</span>
-        <span>${esc(contact.source || 'web')}</span>
+        <span>${esc(contact.location || 'Location unavailable')}</span>
       </div>
       <div class="actions">
         <button class="btn" data-mark-interested="${contact.id}">Interested</button>
         <button class="btn" data-open-draft="${contact.id}">Draft</button>
-        ${contact.profileUrl ? `<a class="btn link-btn" href="${esc(contact.profileUrl)}" target="_blank" rel="noopener">Source</a>` : ''}
+        ${contact.profileUrl ? `<a class="btn link-btn" href="${esc(contact.profileUrl)}" target="_blank" rel="noopener">Profile</a>` : ''}
       </div>
     </article>
   `;
@@ -323,7 +323,6 @@ function renderSearch() {
             <p>${esc(selected.summary || selected.matchExplanation || 'No detailed summary available')}</p>
             <div class="kv-stack">
               <div><strong>Relevance:</strong> ${Math.round((selected.confidence || 0) * 100)}%</div>
-              <div><strong>Source:</strong> ${esc(selected.source || 'web')}</div>
               ${selected.companyUrl ? `<div><strong>Company:</strong> <a href="${esc(selected.companyUrl)}" target="_blank" rel="noopener">${esc(selected.companyUrl)}</a></div>` : ''}
             </div>
             <div class="actions">
@@ -393,13 +392,13 @@ function renderSwipe() {
                     const isTop = idx === list.length - 1;
                     return `
                     <article class="swipe-card ${isTop ? 'top-card' : ''}" data-swipe-card="${contact.id}" style="--stack:${list.length - idx};">
-                      <p class="eyebrow">${esc(contact.source || 'web result')}</p>
+                      <p class="eyebrow">${esc(contact.location || 'Network match')}</p>
                       <h2>${esc(contact.fullName)}</h2>
                       <p>${esc(contact.title || 'Role unavailable')} · ${esc(contact.company || 'Organization unavailable')}</p>
                       <p class="muted">${esc(contact.summary || contact.matchExplanation || 'No summary available')}</p>
                       <div class="card-footer">
                         <span>${Math.round((contact.confidence || 0) * 100)}% fit</span>
-                        ${contact.profileUrl ? `<a href="${esc(contact.profileUrl)}" target="_blank" rel="noopener">Source ↗</a>` : ''}
+                        ${contact.profileUrl ? `<a href="${esc(contact.profileUrl)}" target="_blank" rel="noopener">Profile ↗</a>` : ''}
                       </div>
                     </article>
                   `;
