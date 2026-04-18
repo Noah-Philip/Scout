@@ -1,5 +1,20 @@
 const app = document.getElementById('app');
 
+const PROFILE_STORAGE_KEY = 'scout-network-profile-v1';
+
+function readSavedProfile() {
+  try {
+    const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+const savedProfile = readSavedProfile();
+
 const state = {
   query: '',
   loading: false,
@@ -8,16 +23,17 @@ const state = {
   selected: null,
   shortlisted: [],
   drafts: [],
-  providerDebug: null,
   emailLoading: false,
   emailError: '',
+  profileLocked: Boolean(savedProfile),
   emailForm: {
-    whoTheyAre: '',
-    background: '',
-    whyReachingOut: '',
-    ask: '',
-    tone: 'professional',
-    extraNotes: '',
+    name: savedProfile?.name || '',
+    whoTheyAre: savedProfile?.whoTheyAre || '',
+    background: savedProfile?.background || '',
+    whyReachingOut: savedProfile?.whyReachingOut || '',
+    ask: savedProfile?.ask || '',
+    tone: savedProfile?.tone || 'professional',
+    extraNotes: savedProfile?.extraNotes || '',
   },
   generated: null,
 };
@@ -32,6 +48,53 @@ function esc(value = '') {
     .replaceAll('"', '&quot;');
 }
 
+function saveProfile() {
+  const profile = {
+    name: state.emailForm.name,
+    whoTheyAre: state.emailForm.whoTheyAre,
+    background: state.emailForm.background,
+    whyReachingOut: state.emailForm.whyReachingOut,
+    ask: state.emailForm.ask,
+    tone: state.emailForm.tone,
+    extraNotes: state.emailForm.extraNotes,
+  };
+
+  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+}
+
+function renderProfileSummary() {
+  return `
+    <div class="saved-profile">
+      <p><strong>Saved profile:</strong> ${esc(state.emailForm.name || 'Unnamed user')} · ${esc(state.emailForm.whoTheyAre || 'No role yet')}</p>
+      <p class="muted">Your profile defaults are reused for every email draft.</p>
+      <button class="btn" id="edit-profile">Edit profile</button>
+    </div>
+  `;
+}
+
+function renderProfileForm() {
+  return `
+    <div class="profile-builder">
+      <h3>Build your one-time profile</h3>
+      <p class="muted">Set this once so you do not need to re-enter it for each new outreach email.</p>
+      <div class="grid">
+        <label>Your name<input name="name" value="${esc(state.emailForm.name)}" placeholder="Jane Student" /></label>
+        <label>Who you are<input name="whoTheyAre" value="${esc(state.emailForm.whoTheyAre)}" placeholder="CS student at UT Austin" /></label>
+        <label>Your background<textarea name="background">${esc(state.emailForm.background)}</textarea></label>
+        <label>Default reason for reaching out<textarea name="whyReachingOut">${esc(state.emailForm.whyReachingOut)}</textarea></label>
+        <label>Default ask<textarea name="ask">${esc(state.emailForm.ask)}</textarea></label>
+        <label>Tone
+          <select name="tone">
+            ${['professional', 'warm', 'casual', 'formal', 'direct'].map((t) => `<option ${state.emailForm.tone === t ? 'selected' : ''}>${t}</option>`).join('')}
+          </select>
+        </label>
+        <label>Extra notes<textarea name="extraNotes">${esc(state.emailForm.extraNotes)}</textarea></label>
+      </div>
+      <div class="actions"><button class="btn" id="save-profile">Save profile defaults</button></div>
+    </div>
+  `;
+}
+
 function render() {
   app.innerHTML = `
   <main class="shell">
@@ -40,7 +103,6 @@ function render() {
         <h1>Scout</h1>
         <p class="subtitle">Networking copilot: search → review → select → generate outreach.</p>
       </div>
-      <button class="btn" id="provider-check">Provider status</button>
     </header>
 
     <section class="panel search-panel">
@@ -64,7 +126,7 @@ function render() {
               (c) => `
               <button class="contact-row ${state.selected?.id === c.id ? 'active' : ''}" data-contact="${c.id}">
                 <div><strong>${esc(c.fullName)}</strong><p>${esc(c.title || 'Unknown role')} · ${esc(c.company || 'Unknown company')}</p></div>
-                <span>${Math.round((c.confidence || 0) * 100)}%</span>
+                <span>${Math.round((c.confidence || 0) * 100)}% fit</span>
               </button>
             `,
             )
@@ -80,11 +142,8 @@ function render() {
               <h3>${esc(state.selected.fullName)}</h3>
               <p>${esc(state.selected.title || '')} ${state.selected.company ? `at ${esc(state.selected.company)}` : ''}</p>
               <p>${esc(state.selected.location || 'Location unavailable')}</p>
-              <p>${esc(state.selected.summary || 'No summary available.')}</p>
-              <p><strong>Source:</strong> ${esc(state.selected.source)}</p>
-              <p><strong>Match:</strong> ${esc(state.selected.matchExplanation || '')}</p>
-              ${state.selected.profileUrl ? `<p><a target="_blank" rel="noopener" href="${esc(state.selected.profileUrl)}">Profile URL</a></p>` : ''}
-              ${state.selected.email ? `<p><strong>Email:</strong> ${esc(state.selected.email)}</p>` : '<p><strong>Email:</strong> Not ethically available from configured providers.</p>'}
+              <p>${esc(state.selected.summary || 'No public profile summary available.')}</p>
+              ${state.selected.profileUrl ? `<p><a target="_blank" rel="noopener" href="${esc(state.selected.profileUrl)}">LinkedIn profile</a></p>` : ''}
               <div class="actions">
                 <button class="btn" data-shortlist="${state.selected.id}">Favorite</button>
                 <button class="btn" data-copy-contact="${state.selected.id}">Copy profile link</button>
@@ -97,18 +156,7 @@ function render() {
 
     <section class="panel email-panel">
       <h2>Generate outreach email</h2>
-      <div class="grid">
-        <label>Who you are<input name="whoTheyAre" value="${esc(state.emailForm.whoTheyAre)}" /></label>
-        <label>Your background<textarea name="background">${esc(state.emailForm.background)}</textarea></label>
-        <label>Why you are reaching out<textarea name="whyReachingOut">${esc(state.emailForm.whyReachingOut)}</textarea></label>
-        <label>What you are asking for<textarea name="ask">${esc(state.emailForm.ask)}</textarea></label>
-        <label>Tone
-          <select name="tone">
-            ${['professional', 'warm', 'casual', 'formal', 'direct'].map((t) => `<option ${state.emailForm.tone === t ? 'selected' : ''}>${t}</option>`).join('')}
-          </select>
-        </label>
-        <label>Extra notes<textarea name="extraNotes">${esc(state.emailForm.extraNotes)}</textarea></label>
-      </div>
+      ${state.profileLocked ? renderProfileSummary() : renderProfileForm()}
       <div class="actions">
         <button class="btn primary" id="generate-email" ${state.emailLoading || !state.selected ? 'disabled' : ''}>${state.emailLoading ? 'Generating…' : 'Generate'}</button>
         <button class="btn" data-edit="regenerate" ${!state.generated ? 'disabled' : ''}>Regenerate</button>
@@ -135,11 +183,6 @@ function render() {
       <h2>Saved / recent</h2>
       <p><strong>Favorites:</strong> ${state.shortlisted.map((c) => esc(c.fullName)).join(', ') || 'None yet'}</p>
       <p><strong>Recent drafts:</strong> ${state.drafts.slice(0, 3).map((d) => esc(d.subject)).join(' | ') || 'None yet'}</p>
-      ${
-        state.providerDebug
-          ? `<pre>${esc(JSON.stringify(state.providerDebug, null, 2))}</pre>`
-          : '<p>Use “Provider status” to verify key setup and provider health.</p>'
-      }
     </section>
   </main>`;
 }
@@ -185,7 +228,7 @@ async function generateEmail(editInstruction = '') {
         editInstruction,
         contact: state.selected,
         profile: {
-          name: state.emailForm.whoTheyAre,
+          name: state.emailForm.name,
           whoTheyAre: state.emailForm.whoTheyAre,
           background: state.emailForm.background,
         },
@@ -209,51 +252,72 @@ async function generateEmail(editInstruction = '') {
   }
 }
 
-async function checkProviders() {
-  const response = await fetch('/api/debug/providers');
-  state.providerDebug = await response.json();
-  render();
-}
-
 document.addEventListener('click', async (event) => {
   const target = event.target;
 
-  if (target.matches('[data-preset]')) {
-    state.query = target.getAttribute('data-preset') || '';
+  const presetButton = target.closest('[data-preset]');
+  if (presetButton) {
+    state.query = presetButton.getAttribute('data-preset') || '';
     render();
+    return;
   }
 
-  if (target.id === 'run-search') await runSearch();
+  if (target.id === 'run-search') {
+    await runSearch();
+    return;
+  }
 
-  if (target.matches('[data-contact]')) {
-    const contactId = target.getAttribute('data-contact');
+  const contactButton = target.closest('[data-contact]');
+  if (contactButton) {
+    const contactId = contactButton.getAttribute('data-contact');
     state.selected = state.contacts.find((c) => c.id === contactId) || null;
     render();
+    return;
   }
 
-  if (target.matches('[data-shortlist]')) {
-    const c = state.contacts.find((item) => item.id === target.getAttribute('data-shortlist'));
+  const shortlistButton = target.closest('[data-shortlist]');
+  if (shortlistButton) {
+    const c = state.contacts.find((item) => item.id === shortlistButton.getAttribute('data-shortlist'));
     if (c && !state.shortlisted.some((item) => item.id === c.id)) state.shortlisted.unshift(c);
     render();
+    return;
   }
 
-  if (target.matches('[data-copy-contact]')) {
-    const c = state.contacts.find((item) => item.id === target.getAttribute('data-copy-contact'));
+  const copyButton = target.closest('[data-copy-contact]');
+  if (copyButton) {
+    const c = state.contacts.find((item) => item.id === copyButton.getAttribute('data-copy-contact'));
     if (c?.profileUrl) await navigator.clipboard.writeText(c.profileUrl);
+    return;
   }
 
-  if (target.id === 'generate-email') await generateEmail('');
+  if (target.id === 'save-profile') {
+    saveProfile();
+    state.profileLocked = true;
+    render();
+    return;
+  }
 
-  if (target.matches('[data-edit]')) {
-    const cmd = target.getAttribute('data-edit') || '';
+  if (target.id === 'edit-profile') {
+    state.profileLocked = false;
+    render();
+    return;
+  }
+
+  if (target.id === 'generate-email') {
+    await generateEmail('');
+    return;
+  }
+
+  const editButton = target.closest('[data-edit]');
+  if (editButton) {
+    const cmd = editButton.getAttribute('data-edit') || '';
     await generateEmail(cmd);
+    return;
   }
 
   if (target.id === 'copy-email' && state.generated?.full) {
     await navigator.clipboard.writeText(`Subject: ${state.generated.subject}\n\n${state.generated.full}`);
   }
-
-  if (target.id === 'provider-check') await checkProviders();
 });
 
 document.addEventListener('input', (event) => {

@@ -19,6 +19,15 @@ function parseTitle(title = '') {
   };
 }
 
+function cleanSnippet(snippet = '') {
+  return String(snippet || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\b\d+\s+connections\b/gi, '')
+    .replace(/\b(on LinkedIn|LinkedIn profile)\b/gi, '')
+    .replace(/\.\s*\.\s*\./g, '…')
+    .trim();
+}
+
 function scoreContact(contact, filters) {
   const haystack = `${contact.fullName} ${contact.title} ${contact.company} ${contact.location} ${contact.summary}`.toLowerCase();
   const terms = [filters.role, filters.company, filters.location, filters.industry, filters.school, ...(filters.keywords || [])]
@@ -33,7 +42,7 @@ function scoreContact(contact, filters) {
 
 function normalizeOrganicResult(result, filters) {
   const { fullName, title, company } = parseTitle(result?.title || '');
-  const snippet = String(result?.snippet || '');
+  const snippet = cleanSnippet(result?.snippet || '');
   const locationMatch = snippet.match(/([A-Z][a-z]+(?:,\s*[A-Z]{2})?)/);
   const profileUrl = toLinkedInUrl(result?.link || '');
 
@@ -48,14 +57,11 @@ function normalizeOrganicResult(result, filters) {
     summary: snippet,
     profileUrl,
     companyUrl: '',
-    email: '',
     source: 'serpapi_google_linkedin',
     confidence: scoreContact({ fullName, title, company, location: locationMatch?.[1] || '', summary: snippet }, filters),
-    matchExplanation: `Matched from LinkedIn web result for query terms: ${(filters.keywords || []).slice(0, 4).join(', ') || 'broad search'}`,
     metadata: {
       position: result?.position,
       displayedLink: result?.displayed_link,
-      raw: result,
     },
   };
 
