@@ -19,14 +19,14 @@ Scout is a polished full-stack MVP for:
 - **Key:** `HUNTER_API_KEY`
 - **Get key:** https://hunter.io/api
 
-### 3) AI generation + query parsing: **OpenAI API**
+### 3) AI generation + query parsing: **Gemini API**
 - **Why chosen:** one provider handles structured query parsing and quality outreach generation.
 - **Usage in Scout:**
   - parse query into `{ role, company, location, industry, school, keywords }`
   - generate subject + 4 email variants (full, shorter, casual, formal)
   - support refinement instructions (regenerate/shorten/warmer/direct)
-- **Key:** `OPENAI_API_KEY` (and optional `OPENAI_MODEL`)
-- **Get key:** https://platform.openai.com/api-keys
+- **Key:** `GEMINI_API_KEY` (and optional `GEMINI_MODEL`)
+- **Get key:** https://aistudio.google.com/app/apikey
 
 ## Unified Scout contact schema
 
@@ -60,7 +60,7 @@ cp .env.example .env
 
 2. Fill required keys:
 - `SERPAPI_API_KEY` (required for people search)
-- `OPENAI_API_KEY` (recommended for best parsing + email quality)
+- `GEMINI_API_KEY` (recommended for best parsing + email quality)
 - `HUNTER_API_KEY` (optional for work-email enrichment)
 
 3. Run app:
@@ -104,12 +104,12 @@ curl -X POST http://localhost:4173/api/email/generate \
 ## Search pipeline architecture
 
 1. **Input query** from user.
-2. **Query parser** (`services/queryParser.js`): OpenAI JSON extraction, heuristic fallback if unavailable.
+2. **Query parser** (`services/queryParser.js`): Gemini JSON extraction, heuristic fallback if unavailable.
 3. **Primary provider** (`services/providers/serpApiProvider.js`): Google results scoped to LinkedIn profiles.
 4. **Normalization** into unified schema.
 5. **Optional enrichment** (`services/providers/hunterProvider.js`) for ethically available work email.
 6. **UI review layer**: list, detail panel, favorites.
-7. **Email generation** (`services/providers/openaiProvider.js`) with variants and refinement controls.
+7. **Email generation** (`services/providers/geminiProvider.js`) with variants and refinement controls.
 
 ## Error handling + resiliency
 
@@ -123,6 +123,6 @@ curl -X POST http://localhost:4173/api/email/generate \
 Provider code is separated by purpose:
 - `services/providers/serpApiProvider.js`
 - `services/providers/hunterProvider.js`
-- `services/providers/openaiProvider.js`
+- `services/providers/geminiProvider.js`
 
 This makes it straightforward to add or swap future people-data providers without changing UI contracts.

@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { searchPeople, getPeopleSearchMode } from './services/peopleSearch.js';
-import { generateEmailDraft, getOpenAIClient } from './services/providers/openaiProvider.js';
+import { generateEmailDraft, getGeminiClient } from './services/providers/geminiProvider.js';
 import { logError, logInfo } from './services/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -27,11 +27,11 @@ function providerStatus() {
       envVar: 'HUNTER_API_KEY',
     },
     llm: {
-      provider: 'OpenAI',
-      configured: Boolean(process.env.OPENAI_API_KEY),
-      envVar: 'OPENAI_API_KEY',
-      model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
-      fallback: !process.env.OPENAI_API_KEY,
+      provider: 'Gemini',
+      configured: Boolean(process.env.GEMINI_API_KEY),
+      envVar: 'GEMINI_API_KEY',
+      model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+      fallback: !process.env.GEMINI_API_KEY,
     },
   };
 }
@@ -113,5 +113,5 @@ app.get('*', (_req, res) => {
 });
 
 app.listen(port, () => {
-  logInfo('Scout server started', { port, hasOpenAI: Boolean(getOpenAIClient()) });
+  logInfo('Scout server started', { port, hasGemini: Boolean(getGeminiClient()) });
 });
