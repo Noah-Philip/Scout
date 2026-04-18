@@ -1,4 +1,4 @@
-import { parseWithOpenAI } from './providers/openaiProvider.js';
+import { parseWithGemini } from './providers/geminiProvider.js';
 
 const STOPWORDS = new Set([
   'in', 'at', 'from', 'for', 'the', 'a', 'an', 'and', 'or', 'with', 'to', 'of', 'near', 'based', 'on', 'who',
@@ -40,7 +40,7 @@ export function heuristicParse(query = '') {
 }
 
 export async function parseQueryWithLlm({ query }) {
-  const parsed = await parseWithOpenAI(query);
+  const parsed = await parseWithGemini(query);
   if (!parsed) return heuristicParse(query);
 
   return {
@@ -51,6 +51,6 @@ export async function parseQueryWithLlm({ query }) {
     school: clean(parsed.school),
     keywords: Array.isArray(parsed.keywords) ? parsed.keywords.map(clean).filter(Boolean) : [],
     confidence: Number(parsed.confidence) || 0.5,
-    parser: 'openai',
+    parser: 'gemini',
   };
 }

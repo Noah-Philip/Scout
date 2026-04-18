@@ -1,14 +1,15 @@
 import { logError } from '../logger.js';
 
-function getHeaders() {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-  };
+function getGeminiModel() {
+  return process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 }
 
-export function getOpenAIClient() {
-  return process.env.OPENAI_API_KEY ? { configured: true } : null;
+function getGeminiApiKey() {
+  return process.env.GEMINI_API_KEY;
+}
+
+export function getGeminiClient() {
+  return getGeminiApiKey() ? { configured: true } : null;
 }
 
 function fallbackEmail({ contact, profile, request, query }) {
@@ -20,7 +21,7 @@ function fallbackEmail({ contact, profile, request, query }) {
 
   const full = `Hi ${firstName},\n\nI'm ${who}. ${background}. I'm reaching out because ${why}.\n\nGiven your work as ${contact.title || 'a professional'} at ${contact.company || 'your organization'}, I would really value ${ask}.\n\nIf helpful, I can work around your schedule.\n\nBest,\n${profile.name || '[Your Name]'}`;
   return {
-    subject: `Quick networking request`,
+    subject: 'Quick networking request',
     full,
     shorter: `Hi ${firstName}, I'm ${who}. I'd value ${ask} to learn from your path. Thanks!`,
     casual: `Hey ${firstName} — loved your background. Open to a quick chat?`,
@@ -30,41 +31,69 @@ function fallbackEmail({ contact, profile, request, query }) {
   };
 }
 
-async function callOpenAIJson({ schemaName, schema, input }) {
-  const response = await fetch('https://api.openai.com/v1/responses', {
+function extractTextFromGeminiResponse(payload) {
+  const parts = payload?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return '';
+  return parts
+    .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+    .join('')
+    .trim();
+}
+
+function extractJson(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) throw new Error('Gemini response missing text');
+
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fencedMatch ? fencedMatch[1].trim() : trimmed;
+
+  const firstBrace = candidate.indexOf('{');
+  const lastBrace = candidate.lastIndexOf('}');
+  const jsonText = firstBrace >= 0 && lastBrace >= firstBrace ? candidate.slice(firstBrace, lastBrace + 1) : candidate;
+
+  return JSON.parse(jsonText);
+}
+
+async function callGeminiJson({ schemaName, schema, prompt }) {
+  const model = getGeminiModel();
+  const apiKey = getGeminiApiKey();
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
     method: 'POST',
-    headers: getHeaders(),
+    headers: {
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
-      input,
-      text: {
-        format: {
-          type: 'json_schema',
-          name: schemaName,
-          schema,
-        },
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: 'application/json',
       },
+      systemInstruction: {
+        parts: [
+          {
+            text: `Return valid JSON only. Follow this JSON schema name=${schemaName}: ${JSON.stringify(schema)}`,
+          },
+        ],
+      },
+      contents: [{ parts: [{ text: prompt }] }],
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI API failed (${response.status})`);
+    throw new Error(`Gemini API failed (${response.status})`);
   }
 
   const payload = await response.json();
-  if (!payload.output_text) {
-    throw new Error('OpenAI response missing output_text');
-  }
-  return JSON.parse(payload.output_text);
+  const text = extractTextFromGeminiResponse(payload);
+  return extractJson(text);
 }
 
 export async function generateEmailDraft({ contact, profile, request, query, editInstruction }) {
-  if (!process.env.OPENAI_API_KEY) return fallbackEmail({ contact, profile, request, query });
+  if (!getGeminiApiKey()) return fallbackEmail({ contact, profile, request, query });
 
   const instruction = editInstruction ? `Apply this refinement request: ${editInstruction}` : 'Generate initial drafts.';
 
   try {
-    const parsed = await callOpenAIJson({
+    const parsed = await callGeminiJson({
       schemaName: 'outreach_email',
       schema: {
         type: 'object',
@@ -78,37 +107,38 @@ export async function generateEmailDraft({ contact, profile, request, query, edi
         },
         required: ['subject', 'full', 'shorter', 'casual', 'formal'],
       },
-      input: [
-        {
-          role: 'system',
-          content:
-            'You write truthful cold outreach emails for networking. Never fabricate facts. Return JSON with keys subject, full, shorter, casual, formal.',
-        },
-        { role: 'user', content: JSON.stringify({ contact, profile, request, query, instruction }) },
-      ],
+      prompt: JSON.stringify({
+        task: 'You write truthful cold outreach emails for networking. Never fabricate facts.',
+        output: 'Return JSON with keys subject, full, shorter, casual, formal.',
+        contact,
+        profile,
+        request,
+        query,
+        instruction,
+      }),
     });
 
     return {
       ...parsed,
-      model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+      model: getGeminiModel(),
       basedOnQuery: query,
     };
   } catch (error) {
-    logError('OpenAI email draft generation failed; using fallback template', {
+    logError('Gemini email draft generation failed; using fallback template', {
       errorMessage: error?.message || String(error),
       status: error?.status || error?.response?.status || null,
-      selectedModel: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
-      hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
+      selectedModel: getGeminiModel(),
+      hasGeminiKey: Boolean(getGeminiApiKey()),
     });
     return fallbackEmail({ contact, profile, request, query });
   }
 }
 
-export async function parseWithOpenAI(query) {
-  if (!process.env.OPENAI_API_KEY) return null;
+export async function parseWithGemini(query) {
+  if (!getGeminiApiKey()) return null;
 
   try {
-    return await callOpenAIJson({
+    return await callGeminiJson({
       schemaName: 'search_filters',
       schema: {
         type: 'object',
@@ -124,14 +154,7 @@ export async function parseWithOpenAI(query) {
         },
         required: ['role', 'company', 'location', 'industry', 'school', 'keywords', 'confidence'],
       },
-      input: [
-        {
-          role: 'system',
-          content:
-            'Extract networking search filters into strict JSON with keys role, company, location, industry, school, keywords(array), confidence(0-1). Keep empty string when unknown.',
-        },
-        { role: 'user', content: query },
-      ],
+      prompt: `Extract networking search filters into strict JSON with keys role, company, location, industry, school, keywords(array), confidence(0-1). Keep empty string when unknown. Query: ${query}`,
     });
   } catch {
     return null;
