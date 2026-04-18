@@ -1,3 +1,5 @@
+import { logError } from '../logger.js';
+
 function getHeaders() {
   return {
     'Content-Type': 'application/json',
@@ -91,7 +93,13 @@ export async function generateEmailDraft({ contact, profile, request, query, edi
       model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
       basedOnQuery: query,
     };
-  } catch {
+  } catch (error) {
+    logError('OpenAI email draft generation failed; using fallback template', {
+      errorMessage: error?.message || String(error),
+      status: error?.status || error?.response?.status || null,
+      selectedModel: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+      hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
+    });
     return fallbackEmail({ contact, profile, request, query });
   }
 }
