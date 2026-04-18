@@ -32,7 +32,9 @@ textarea { min-height: 85px; }
 .contact-row.active { border-color: var(--accent); background: var(--accent-soft); }
 .actions { display: flex; gap: .45rem; flex-wrap: wrap; margin-top: .6rem; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: .7rem; }
+.saved-profile, .profile-builder { border: 1px solid var(--line); border-radius: 12px; padding: .75rem; margin-bottom: .75rem; background: #fafcff; }
 label { display: grid; gap: .32rem; font-size: .92rem; color: var(--muted); }
+.muted { margin: 0; color: var(--muted); }
 pre { white-space: pre-wrap; background: #f8faff; border: 1px solid var(--line); border-radius: 10px; padding: .7rem; }
 @media (max-width: 920px) {
   .layout { grid-template-columns: 1fr; }

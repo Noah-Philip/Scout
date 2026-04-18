@@ -1,7 +1,6 @@
 import { parseQueryWithLlm } from './queryParser.js';
 import { logInfo } from './logger.js';
 import { searchWithSerpApi } from './providers/serpApiProvider.js';
-import { enrichEmailsWithHunter } from './providers/hunterProvider.js';
 
 const MAX_LIMIT = 25;
 const MIN_LIMIT = 1;
@@ -31,13 +30,11 @@ export async function searchPeople({ query, limit }) {
   const parsedFilters = await parseQueryWithLlm({ query });
 
   const providerResult = await searchWithSerpApi({ query, filters: parsedFilters, limit: normalizedLimit });
-
   const deduped = dedupeContacts(providerResult.contacts);
-  const enriched = await enrichEmailsWithHunter(deduped);
 
   logInfo('People search completed', {
     query,
-    resultCount: enriched.length,
+    resultCount: deduped.length,
     provider: providerResult.provider,
     parser: parsedFilters.parser,
   });
@@ -47,6 +44,6 @@ export async function searchPeople({ query, limit }) {
     parsedFilters,
     provider: providerResult.provider,
     fetchedAt: providerResult.fetchedAt,
-    contacts: enriched,
+    contacts: deduped,
   };
 }
